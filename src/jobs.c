@@ -1,7 +1,7 @@
 /*	$OpenBSD: jobs.c,v 1.38 2009/12/12 04:28:44 deraadt Exp $	*/
 
 /*-
- * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011
+ * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011, 2012
  *	Thorsten Glaser <tg@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
@@ -22,7 +22,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/jobs.c,v 1.81 2011/08/27 18:06:46 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/jobs.c,v 1.94 2012/12/28 02:28:36 tg Exp $");
 
 #if HAVE_KILLPG
 #define mksh_killpg		killpg
@@ -37,13 +37,15 @@ __RCSID("$MirOS: src/bin/mksh/jobs.c,v 1.81 2011/08/27 18:06:46 tg Exp $");
 #define PSIGNALLED	2
 #define PSTOPPED	3
 
-typedef struct proc	Proc;
+typedef struct proc Proc;
 struct proc {
 	Proc *next;		/* next process in pipeline (if any) */
 	pid_t pid;		/* process id */
 	int state;
 	int status;		/* wait status */
-	char command[48];	/* process command string */
+	/* process command string from vistree */
+	char command[64 - (ALLOC_SIZE + sizeof(Proc *) + sizeof(pid_t) +
+	    2 * sizeof(int))];
 };
 
 /* Notify/print flag - j_print() argument */
@@ -87,7 +89,7 @@ struct job {
 	int32_t	age;		/* number of jobs started */
 	Coproc_id coproc_id;	/* 0 or id of coprocess output pipe */
 #ifndef MKSH_UNEMPLOYED
-	struct termios ttystat;	/* saved tty state for stopped jobs */
+	mksh_ttyst ttystat;	/* saved tty state for stopped jobs */
 	pid_t saved_ttypgrp;	/* saved tty process group for stopped jobs */
 #endif
 };
@@ -105,7 +107,7 @@ struct job {
 #define JL_AMBIG	2	/* %foo or %?foo is ambiguous */
 #define JL_INVALID	3	/* non-pid, non-% job id */
 
-static const char *const lookup_msgs[] = {
+static const char * const lookup_msgs[] = {
 	null,
 	"no such job",
 	"ambiguous",
@@ -149,6 +151,9 @@ static void		check_job(Job *);
 static void		put_job(Job *, int);
 static void		remove_job(Job *, const char *);
 static int		kill_job(Job *, int);
+
+static void tty_init_talking(void);
+static void tty_init_state(void);
 
 /* initialise job control */
 void
@@ -199,13 +204,15 @@ j_init(void)
 		}
 	}
 
-	/* j_change() calls tty_init() */
+	/* j_change() calls tty_init_talking() and tty_init_state() */
 	if (Flag(FMONITOR))
 		j_change();
 	else
 #endif
-	  if (Flag(FTALKING))
-		tty_init(true, true);
+	  if (Flag(FTALKING)) {
+		tty_init_talking();
+		tty_init_state();
+	}
 }
 
 static int
@@ -284,12 +291,12 @@ j_change(void)
 	if (Flag(FMONITOR)) {
 		bool use_tty = Flag(FTALKING);
 
-		/* Don't call tcgetattr() 'til we own the tty process group */
+		/* don't call mksh_tcget until we own the tty process group */
 		if (use_tty)
-			tty_init(false, true);
+			tty_init_talking();
 
 		/* no controlling tty, no SIGT* */
-		if ((ttypgrp_ok = use_tty && tty_fd >= 0 && tty_devtty)) {
+		if ((ttypgrp_ok = (use_tty && tty_fd >= 0 && tty_devtty))) {
 			setsig(&sigtraps[SIGTTIN], SIG_DFL,
 			    SS_RESTORE_ORIG|SS_FORCE);
 			/* wait to be given tty (POSIX.1, B.2, job control) */
@@ -299,7 +306,7 @@ j_change(void)
 				if ((ttypgrp = tcgetpgrp(tty_fd)) < 0) {
 					warningf(false, "%s: %s %s: %s",
 					    "j_init", "tcgetpgrp", "failed",
-					    strerror(errno));
+					    cstrerror(errno));
 					ttypgrp_ok = false;
 					break;
 				}
@@ -314,24 +321,24 @@ j_change(void)
 		if (ttypgrp_ok && kshpgrp != kshpid) {
 			if (setpgid(0, kshpid) < 0) {
 				warningf(false, "%s: %s %s: %s", "j_init",
-				    "setpgid", "failed", strerror(errno));
+				    "setpgid", "failed", cstrerror(errno));
 				ttypgrp_ok = false;
 			} else {
 				if (tcsetpgrp(tty_fd, kshpid) < 0) {
 					warningf(false, "%s: %s %s: %s",
 					    "j_init", "tcsetpgrp", "failed",
-					    strerror(errno));
+					    cstrerror(errno));
 					ttypgrp_ok = false;
 				} else
 					restore_ttypgrp = kshpgrp;
 				kshpgrp = kshpid;
 			}
 		}
+#ifndef MKSH_DISABLE_TTY_WARNING
 		if (use_tty && !ttypgrp_ok)
 			warningf(false, "%s: %s", "warning",
 			    "won't have full job control");
-		if (tty_fd >= 0)
-			tcgetattr(tty_fd, &tty_state);
+#endif
 	} else {
 		ttypgrp_ok = false;
 		if (Flag(FTALKING))
@@ -347,9 +354,8 @@ j_change(void)
 					    SIG_IGN : SIG_DFL,
 					    SS_RESTORE_ORIG|SS_FORCE);
 			}
-		if (!Flag(FTALKING))
-			tty_close();
 	}
+	tty_init_state();
 }
 #endif
 
@@ -359,12 +365,12 @@ static void
 ksh_nice(int ness)
 {
 #if defined(__USE_FORTIFY_LEVEL) && (__USE_FORTIFY_LEVEL > 0)
-	int e;
+	int eno;
 
 	errno = 0;
 	/* this is gonna annoy users; complain to your distro, people! */
-	if (nice(ness) == -1 && (e = errno) != 0)
-		warningf(false, "%s: %s", "bgnice", strerror(e));
+	if (nice(ness) == -1 && (eno = errno) != 0)
+		warningf(false, "%s: %s", "bgnice", cstrerror(eno));
 #else
 	(void)nice(ness);
 #endif
@@ -473,6 +479,7 @@ exchild(struct op *t, int flags,
 	/* job control set up */
 	if (Flag(FMONITOR) && !(flags&XXCOM)) {
 		bool dotty = false;
+
 		if (j->pgrp == 0) {
 			/* First process */
 			j->pgrp = p->pid;
@@ -542,7 +549,6 @@ exchild(struct op *t, int flags,
 		Flag(FMONITOR) = 0;
 #endif
 		Flag(FTALKING) = 0;
-		tty_close();
 		cleartraps();
 		/* no return */
 		execute(t, (flags & XERROK) | XEXEC, NULL);
@@ -729,7 +735,7 @@ j_kill(const char *cp, int sig)
 	if (j->pgrp == 0) {
 		/* started when !Flag(FMONITOR) */
 		if (kill_job(j, sig) < 0) {
-			bi_errorf("%s: %s", cp, strerror(errno));
+			bi_errorf("%s: %s", cp, cstrerror(errno));
 			rv = 1;
 		}
 	} else {
@@ -738,7 +744,7 @@ j_kill(const char *cp, int sig)
 			mksh_killpg(j->pgrp, SIGCONT);
 #endif
 		if (mksh_killpg(j->pgrp, sig) < 0) {
-			bi_errorf("%s: %s", cp, strerror(errno));
+			bi_errorf("%s: %s", cp, cstrerror(errno));
 			rv = 1;
 		}
 	}
@@ -801,20 +807,20 @@ j_resume(const char *cp, int bg)
 		/* attach tty to job */
 		if (j->state == PRUNNING) {
 			if (ttypgrp_ok && (j->flags & JF_SAVEDTTY))
-				tcsetattr(tty_fd, TCSADRAIN, &j->ttystat);
+				mksh_tcset(tty_fd, &j->ttystat);
 			/* See comment in j_waitj regarding saved_ttypgrp. */
 			if (ttypgrp_ok &&
 			    tcsetpgrp(tty_fd, (j->flags & JF_SAVEDTTYPGRP) ?
 			    j->saved_ttypgrp : j->pgrp) < 0) {
 				rv = errno;
 				if (j->flags & JF_SAVEDTTY)
-					tcsetattr(tty_fd, TCSADRAIN, &tty_state);
+					mksh_tcset(tty_fd, &tty_state);
 				sigprocmask(SIG_SETMASK, &omask, NULL);
 				bi_errorf("%s %s(%d, %ld) %s: %s",
 				    "1st", "tcsetpgrp", tty_fd,
 				    (long)((j->flags & JF_SAVEDTTYPGRP) ?
 				    j->saved_ttypgrp : j->pgrp), "failed",
-				    strerror(rv));
+				    cstrerror(rv));
 				return (1);
 			}
 		}
@@ -825,20 +831,20 @@ j_resume(const char *cp, int bg)
 	}
 
 	if (j->state == PRUNNING && mksh_killpg(j->pgrp, SIGCONT) < 0) {
-		int err = errno;
+		int eno = errno;
 
 		if (!bg) {
 			j->flags &= ~JF_FG;
 			if (ttypgrp_ok && (j->flags & JF_SAVEDTTY))
-				tcsetattr(tty_fd, TCSADRAIN, &tty_state);
+				mksh_tcset(tty_fd, &tty_state);
 			if (ttypgrp_ok && tcsetpgrp(tty_fd, kshpgrp) < 0)
 				warningf(true, "%s %s(%d, %ld) %s: %s",
 				    "fg: 2nd", "tcsetpgrp", tty_fd,
-				    (long)kshpgrp, "failed", strerror(errno));
+				    (long)kshpgrp, "failed", cstrerror(errno));
 		}
 		sigprocmask(SIG_SETMASK, &omask, NULL);
 		bi_errorf("%s %s %s", "can't continue job",
-		    cp, strerror(err));
+		    cp, cstrerror(eno));
 		return (1);
 	}
 	if (!bg) {
@@ -1060,6 +1066,9 @@ j_waitj(Job *j,
     const char *where)
 {
 	int rv;
+#ifdef MKSH_NO_SIGSUSPEND
+	sigset_t omask;
+#endif
 
 	/*
 	 * No auto-notify on the job we are waiting on.
@@ -1076,7 +1085,14 @@ j_waitj(Job *j,
 	while (j->state == PRUNNING ||
 	    ((flags & JW_STOPPEDWAIT) && j->state == PSTOPPED)) {
 #ifndef MKSH_NOPROSPECTOFWORK
+#ifdef MKSH_NO_SIGSUSPEND
+		sigprocmask(SIG_SETMASK, &sm_default, &omask);
+		pause();
+		/* note that handlers may run here so they need to know */
+		sigprocmask(SIG_SETMASK, &omask, NULL);
+#else
 		sigsuspend(&sm_default);
+#endif
 #else
 		j_sigchld(SIGCHLD);
 #endif
@@ -1115,14 +1131,14 @@ j_waitj(Job *j,
 			if (tcsetpgrp(tty_fd, kshpgrp) < 0)
 				warningf(true, "%s %s(%d, %ld) %s: %s",
 				    "j_waitj:", "tcsetpgrp", tty_fd,
-				    (long)kshpgrp, "failed", strerror(errno));
+				    (long)kshpgrp, "failed", cstrerror(errno));
 			if (j->state == PSTOPPED) {
 				j->flags |= JF_SAVEDTTY;
-				tcgetattr(tty_fd, &j->ttystat);
+				mksh_tcget(tty_fd, &j->ttystat);
 			}
 		}
 #endif
-		if (tty_fd >= 0) {
+		if (tty_hasstate) {
 			/*
 			 * Only restore tty settings if job was originally
 			 * started in the foreground. Problems can be
@@ -1134,9 +1150,9 @@ j_waitj(Job *j,
 			 */
 			if (j->state == PEXITED && j->status == 0 &&
 			    (j->flags & JF_USETTYMODE)) {
-				tcgetattr(tty_fd, &tty_state);
+				mksh_tcget(tty_fd, &tty_state);
 			} else {
-				tcsetattr(tty_fd, TCSADRAIN, &tty_state);
+				mksh_tcset(tty_fd, &tty_state);
 				/*-
 				 * Don't use tty mode if job is stopped and
 				 * later restarted and exits. Consider
@@ -1242,6 +1258,12 @@ j_sigchld(int sig MKSH_A_UNUSED)
 	pid_t pid;
 	int status;
 	struct rusage ru0, ru1;
+#ifdef MKSH_NO_SIGSUSPEND
+	sigset_t omask;
+
+	/* this handler can run while SIGCHLD is not blocked, so block it now */
+	sigprocmask(SIG_BLOCK, &sm_sigchld, &omask);
+#endif
 
 #ifndef MKSH_NOPROSPECTOFWORK
 	/*
@@ -1253,7 +1275,7 @@ j_sigchld(int sig MKSH_A_UNUSED)
 	for (j = job_list; j; j = j->next)
 		if (j->ppid == procpid && !(j->flags & JF_STARTED)) {
 			held_sigchld = 1;
-			return;
+			goto j_sigchld_out;
 		}
 #endif
 
@@ -1270,7 +1292,7 @@ j_sigchld(int sig MKSH_A_UNUSED)
 		 * or interrupted (-1)
 		 */
 		if (pid <= 0)
-			return;
+			goto j_sigchld_out;
 
 		getrusage(RUSAGE_CHILDREN, &ru1);
 
@@ -1313,6 +1335,12 @@ j_sigchld(int sig MKSH_A_UNUSED)
 #else
 	    while (/* CONSTCOND */ 0);
 #endif
+
+ j_sigchld_out:
+#ifdef MKSH_NO_SIGSUSPEND
+	sigprocmask(SIG_SETMASK, &omask, NULL);
+#endif
+	/* nothing */;
 }
 
 /*
@@ -1491,6 +1519,8 @@ j_print(Job *j, int how, struct shf *shf)
 				strlcpy(buf, sigtraps[WTERMSIG(p->status)].mess,
 				    sizeof(buf));
 			break;
+		default:
+			buf[0] = '\0';
 		}
 
 		if (how != JP_SHORT) {
@@ -1692,10 +1722,13 @@ remove_job(Job *j, const char *where)
 	Proc	*p, *tmp;
 	Job	**prev, *curr;
 
+	mkssert(j != NULL);
 	prev = &job_list;
-	curr = *prev;
-	for (; curr != NULL && curr != j; prev = &curr->next, curr = *prev)
-		;
+	curr = job_list;
+	while (curr && curr != j) {
+		prev = &curr->next;
+		curr = *prev;
+	}
 	if (curr != j) {
 		internal_warningf("remove_job: job %s (%s)", "not found", where);
 		return;
@@ -1732,11 +1765,14 @@ put_job(Job *j, int where)
 {
 	Job	**prev, *curr;
 
+	mkssert(j != NULL);
 	/* Remove job from list (if there) */
 	prev = &job_list;
 	curr = job_list;
-	for (; curr && curr != j; prev = &curr->next, curr = *prev)
-		;
+	while (curr && curr != j) {
+		prev = &curr->next;
+		curr = *prev;
+	}
 	if (curr == j)
 		*prev = curr->next;
 
@@ -1774,4 +1810,42 @@ kill_job(Job *j, int sig)
 			if (kill(p->pid, sig) < 0)
 				rval = -1;
 	return (rval);
+}
+
+static void
+tty_init_talking(void)
+{
+	switch (tty_init_fd()) {
+	case 0:
+		break;
+	case 1:
+#ifndef MKSH_DISABLE_TTY_WARNING
+		warningf(false, "%s: %s %s: %s",
+		    "No controlling tty", "open", "/dev/tty",
+		    cstrerror(errno));
+#endif
+		break;
+	case 2:
+#ifndef MKSH_DISABLE_TTY_WARNING
+		warningf(false, "%s: %s", "can't find tty fd", cstrerror(errno));
+#endif
+		break;
+	case 3:
+		warningf(false, "%s: %s %s: %s", "j_ttyinit",
+		    "dup of tty fd", "failed", cstrerror(errno));
+		break;
+	case 4:
+		warningf(false, "%s: %s: %s", "j_ttyinit",
+		    "can't set close-on-exec flag", cstrerror(errno));
+		break;
+	}
+}
+
+static void
+tty_init_state(void)
+{
+	if (tty_fd >= 0) {
+		mksh_tcget(tty_fd, &tty_state);
+		tty_hasstate = true;
+	}
 }

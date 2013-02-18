@@ -2,7 +2,8 @@
 /*	$OpenBSD: path.c,v 1.12 2005/03/30 17:16:37 deraadt Exp $	*/
 
 /*-
- * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+ * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+ *		 2011, 2012
  *	Thorsten Glaser <tg@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
@@ -29,7 +30,20 @@
 #include <grp.h>
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/misc.c,v 1.172 2011/09/07 15:24:18 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/misc.c,v 1.205 2012/12/17 23:18:08 tg Exp $");
+
+#define KSH_CHVT_FLAG
+#ifdef MKSH_SMALL
+#undef KSH_CHVT_FLAG
+#endif
+#ifdef TIOCSCTTY
+#define KSH_CHVT_CODE
+#define KSH_CHVT_FLAG
+#endif
+#ifdef MKSH_LEGACY_MODE
+#undef KSH_CHVT_CODE
+#undef KSH_CHVT_FLAG
+#endif
 
 /* type bits for unsigned char */
 unsigned char chtypes[UCHAR_MAX + 1];
@@ -38,8 +52,8 @@ static const unsigned char *pat_scan(const unsigned char *,
     const unsigned char *, bool);
 static int do_gmatch(const unsigned char *, const unsigned char *,
     const unsigned char *, const unsigned char *);
-static const unsigned char *cclass(const unsigned char *, int);
-#ifdef TIOCSCTTY
+static const unsigned char *cclass(const unsigned char *, unsigned char);
+#ifdef KSH_CHVT_CODE
 static void chvt(const char *);
 #endif
 
@@ -87,16 +101,16 @@ initctypes(void)
 	chtypes['_'] |= C_ALPHA;
 	setctypes("0123456789", C_DIGIT);
 	/* \0 added automatically */
-	setctypes(" \t\n|&;<>()", C_LEX1);
+	setctypes(TC_LEX1, C_LEX1);
 	setctypes("*@#!$-?", C_VAR1);
-	setctypes(" \t\n", C_IFSWS);
+	setctypes(TC_IFSWS, C_IFSWS);
 	setctypes("=-+?", C_SUBOP1);
 	setctypes("\t\n \"#$&'()*;<=>?[\\]`|", C_QUOTE);
 }
 
 /* called from XcheckN() to grow buffer */
 char *
-Xcheck_grow_(XString *xsp, const char *xp, size_t more)
+Xcheck_grow(XString *xsp, const char *xp, size_t more)
 {
 	const char *old_beg = xsp->beg;
 
@@ -141,12 +155,12 @@ struct options_info {
 	int opts[NELEM(options)];
 };
 
-static char *options_fmt_entry(char *, size_t, int, const void *);
+static char *options_fmt_entry(char *, size_t, unsigned int, const void *);
 static void printoptions(bool);
 
 /* format a single select menu item */
 static char *
-options_fmt_entry(char *buf, size_t buflen, int i, const void *arg)
+options_fmt_entry(char *buf, size_t buflen, unsigned int i, const void *arg)
 {
 	const struct options_info *oi = (const struct options_info *)arg;
 
@@ -162,7 +176,7 @@ printoptions(bool verbose)
 	size_t i = 0;
 
 	if (verbose) {
-		ssize_t n = 0, len, octs = 0;
+		size_t n = 0, len, octs = 0;
 		struct options_info oi;
 
 		/* verbose version */
@@ -176,8 +190,8 @@ printoptions(bool verbose)
 				if (len > octs)
 					octs = len;
 				len = utf_mbswidth(options[i].name);
-				if (len > oi.opt_width)
-					oi.opt_width = len;
+				if ((int)len > oi.opt_width)
+					oi.opt_width = (int)len;
 			}
 			++i;
 		}
@@ -212,19 +226,20 @@ getoptions(void)
 
 /* change a Flag(*) value; takes care of special actions */
 void
-change_flag(enum sh_flag f, int what, unsigned int newval)
+change_flag(enum sh_flag f, int what, bool newset)
 {
 	unsigned char oldval;
+	unsigned char newval;
 
 	oldval = Flag(f);
-	/* needed for tristates */
-	Flag(f) = newval ? 1 : 0;
+	Flag(f) = newval = (newset ? 1 : 0);
 #ifndef MKSH_UNEMPLOYED
 	if (f == FMONITOR) {
 		if (what != OF_CMDLINE && newval != oldval)
 			j_change();
 	} else
 #endif
+#ifndef MKSH_NO_CMDLINE_EDITING
 	  if ((
 #if !MKSH_S_NOVI
 	    f == FVI ||
@@ -234,8 +249,10 @@ change_flag(enum sh_flag f, int what, unsigned int newval)
 		Flag(FVI) =
 #endif
 		    Flag(FEMACS) = Flag(FGMACS) = 0;
-		Flag(f) = (unsigned char)newval;
-	} else if (f == FPRIVILEGED && oldval && !newval) {
+		Flag(f) = newval;
+	} else
+#endif
+	  if (f == FPRIVILEGED && oldval && !newval) {
 		/* Turning off -p? */
 
 		/*XXX this can probably be optimised */
@@ -249,19 +266,24 @@ change_flag(enum sh_flag f, int what, unsigned int newval)
 		DO_SETUID(setresuid, (ksheuid, ksheuid, ksheuid));
 #else
 		/* seteuid, setegid, setgid don't EAGAIN on Linux */
-		seteuid(ksheuid = kshuid = getuid());
+		ksheuid = kshuid = getuid();
+#ifndef MKSH__NO_SETEUGID
+		seteuid(ksheuid);
+#endif
 		DO_SETUID(setuid, (ksheuid));
+#ifndef MKSH__NO_SETEUGID
 		setegid(kshegid);
+#endif
 		setgid(kshegid);
 #endif
 	} else if ((f == FPOSIX || f == FSH) && newval) {
 		Flag(FPOSIX) = Flag(FSH) = Flag(FBRACEEXPAND) = 0;
-		Flag(f) = (unsigned char)newval;
+		Flag(f) = newval;
 	}
 	/* Changing interactive flag? */
 	if (f == FTALKING) {
 		if ((what == OF_CMDLINE || what == OF_SET) && procpid == kshpid)
-			Flag(FTALKING_I) = (unsigned char)newval;
+			Flag(FTALKING_I) = newval;
 	}
 }
 
@@ -277,7 +299,8 @@ parse_args(const char **argv,
 {
 	static char cmd_opts[NELEM(options) + 5]; /* o:T:\0 */
 	static char set_opts[NELEM(options) + 6]; /* A:o;s\0 */
-	char set, *opts;
+	bool set;
+	char *opts;
 	const char *array = NULL;
 	Getopt go;
 	size_t i;
@@ -291,7 +314,7 @@ parse_args(const char **argv,
 		/* see cmd_opts[] declaration */
 		*p++ = 'o';
 		*p++ = ':';
-#if !defined(MKSH_SMALL) || defined(TIOCSCTTY)
+#ifdef KSH_CHVT_FLAG
 		*p++ = 'T';
 		*p++ = ':';
 #endif
@@ -332,7 +355,7 @@ parse_args(const char **argv,
 		opts = set_opts;
 	ksh_getopt_reset(&go, GF_ERROR|GF_PLUSOPT);
 	while ((optc = ksh_getopt(argv, &go, opts)) != -1) {
-		set = (go.info & GI_PLUS) ? 0 : 1;
+		set = tobool(!(go.info & GI_PLUS));
 		switch (optc) {
 		case 'A':
 			if (what == OF_FIRSTTIME)
@@ -356,7 +379,7 @@ parse_args(const char **argv,
 				break;
 			}
 			i = option(go.optarg);
-			if ((i != (size_t)-1) && set == Flag(i))
+			if ((i != (size_t)-1) && (set ? 1U : 0U) == Flag(i))
 				/*
 				 * Don't check the context if the flag
 				 * isn't changing - makes "set -o interactive"
@@ -372,14 +395,14 @@ parse_args(const char **argv,
 			}
 			break;
 
-#if !defined(MKSH_SMALL) || defined(TIOCSCTTY)
+#ifdef KSH_CHVT_FLAG
 		case 'T':
 			if (what != OF_FIRSTTIME)
 				break;
-#ifndef TIOCSCTTY
+#ifndef KSH_CHVT_CODE
 			errorf("no TIOCSCTTY ioctl");
 #else
-			change_flag(FTALKING, OF_CMDLINE, 1);
+			change_flag(FTALKING, OF_CMDLINE, true);
 			chvt(go.optarg);
 			break;
 #endif
@@ -423,6 +446,7 @@ parse_args(const char **argv,
 	if (arrayset) {
 		const char *ccp = NULL;
 
+		mkssert(array != NULL);
 		if (*array)
 			ccp = skip_varname(array, false);
 		if (!ccp || !(!ccp[0] || (ccp[0] == '+' && !ccp[1]))) {
@@ -447,45 +471,40 @@ parse_args(const char **argv,
 int
 getn(const char *s, int *ai)
 {
-	int i, c, rv = 0;
+	char c;
+	unsigned int i = 0;
 	bool neg = false;
 
 	do {
 		c = *s++;
 	} while (ksh_isspace(c));
-	if (c == '-') {
+
+	switch (c) {
+	case '-':
 		neg = true;
+		/* FALLTHROUGH */
+	case '+':
 		c = *s++;
-	} else if (c == '+')
-		c = *s++;
-	*ai = i = 0;
+		break;
+	}
+
 	do {
 		if (!ksh_isdigit(c))
-			goto getn_out;
-		i *= 10;
-		if (i < *ai)
-			/* overflow */
-			goto getn_out;
-		i += c - '0';
-		*ai = i;
+			/* not numeric */
+			return (0);
+		if (i > 214748364U)
+			/* overflow on multiplication */
+			return (0);
+		i = i * 10U + (unsigned int)(c - '0');
+		/* now: i <= 2147483649U */
 	} while ((c = *s++));
-	rv = 1;
 
- getn_out:
-	if (neg)
-		*ai = -*ai;
-	return (rv);
-}
+	if (i > (neg ? 2147483648U : 2147483647U))
+		/* overflow for signed 32-bit int */
+		return (0);
 
-/* getn() that prints error */
-int
-bi_getn(const char *as, int *ai)
-{
-	int rv;
-
-	if (!(rv = getn(as, ai)))
-		bi_errorf("%s: %s", as, "bad number");
-	return (rv);
+	*ai = neg ? -(int)i : (int)i;
+	return (1);
 }
 
 /**
@@ -644,7 +663,7 @@ has_globbing(const char *xp, const char *xpe)
 			if (!in_bracket) {
 				saw_glob = true;
 				in_bracket = true;
-				if (ISMAGIC(p[1]) && p[2] == NOT)
+				if (ISMAGIC(p[1]) && p[2] == '!')
 					p += 2;
 				if (ISMAGIC(p[1]) && p[2] == ']')
 					p += 2;
@@ -688,7 +707,7 @@ static int
 do_gmatch(const unsigned char *s, const unsigned char *se,
     const unsigned char *p, const unsigned char *pe)
 {
-	int sc, pc;
+	unsigned char sc, pc;
 	const unsigned char *prest, *psub, *pnext;
 	const unsigned char *srest;
 
@@ -818,12 +837,13 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 }
 
 static const unsigned char *
-cclass(const unsigned char *p, int sub)
+cclass(const unsigned char *p, unsigned char sub)
 {
-	int c, d, notp, found = 0;
+	unsigned char c, d;
+	bool notp, found = false;
 	const unsigned char *orig_p = p;
 
-	if ((notp = (ISMAGIC(*p) && *++p == NOT)))
+	if ((notp = tobool(ISMAGIC(*p) && *++p == '!')))
 		p++;
 	do {
 		c = *p++;
@@ -857,7 +877,7 @@ cclass(const unsigned char *p, int sub)
 		} else
 			d = c;
 		if (c == sub || (c <= sub && sub <= d))
-			found = 1;
+			found = true;
 	} while (!(ISMAGIC(p[0]) && p[1] == ']'));
 
 	return ((found != notp) ? p+2 : NULL);
@@ -1030,41 +1050,116 @@ ksh_getopt(const char **argv, Getopt *go, const char *optionsp)
  * No trailing newline is printed.
  */
 void
-print_value_quoted(const char *s)
+print_value_quoted(struct shf *shf, const char *s)
 {
-	const char *p;
-	bool inquote = false;
+	unsigned char c;
+	const unsigned char *p = (const unsigned char *)s;
+	bool inquote = true;
 
 	/* first, check whether any quotes are needed */
-	for (p = s; *p; p++)
-		if (ctype(*p, C_QUOTE))
-			break;
-	if (!*p) {
-		/* nope, use the shortcut */
-		shf_puts(s, shl_stdout);
-		return;
-	}
+	while ((c = *p++) >= 32)
+		if (ctype(c, C_QUOTE))
+			inquote = false;
 
-	/* quote via state machine */
-	for (p = s; *p; p++) {
-		if (*p == '\'') {
-			/*
-			 * multiple '''s or any ' at beginning of string
-			 * look nicer this way than when simply substituting
-			 */
-			if (inquote) {
-				shf_putc('\'', shl_stdout);
-				inquote = false;
-			}
-			shf_putc('\\', shl_stdout);
-		} else if (!inquote) {
-			shf_putc('\'', shl_stdout);
-			inquote = true;
+	p = (const unsigned char *)s;
+	if (c == 0) {
+		if (inquote) {
+			/* nope, use the shortcut */
+			shf_puts(s, shf);
+			return;
 		}
-		shf_putc(*p, shl_stdout);
+
+		/* otherwise, quote nicely via state machine */
+		while ((c = *p++) != 0) {
+			if (c == '\'') {
+				/*
+				 * multiple single quotes or any of them
+				 * at the beginning of a string look nicer
+				 * this way than when simply substituting
+				 */
+				if (inquote) {
+					shf_putc('\'', shf);
+					inquote = false;
+				}
+				shf_putc('\\', shf);
+			} else if (!inquote) {
+				shf_putc('\'', shf);
+				inquote = true;
+			}
+			shf_putc(c, shf);
+		}
+	} else {
+		unsigned int wc;
+		size_t n;
+
+		/* use $'...' quote format */
+		shf_putc('$', shf);
+		shf_putc('\'', shf);
+		while ((c = *p) != 0) {
+			if (c >= 0xC2) {
+				n = utf_mbtowc(&wc, (const char *)p);
+				if (n != (size_t)-1) {
+					p += n;
+					shf_fprintf(shf, "\\u%04X", wc);
+					continue;
+				}
+			}
+			++p;
+			switch (c) {
+			/* see unbksl() in this file for comments */
+			case 7:
+				c = 'a';
+				if (0)
+					/* FALLTHROUGH */
+			case '\b':
+				  c = 'b';
+				if (0)
+					/* FALLTHROUGH */
+			case '\f':
+				  c = 'f';
+				if (0)
+					/* FALLTHROUGH */
+			case '\n':
+				  c = 'n';
+				if (0)
+					/* FALLTHROUGH */
+			case '\r':
+				  c = 'r';
+				if (0)
+					/* FALLTHROUGH */
+			case '\t':
+				  c = 't';
+				if (0)
+					/* FALLTHROUGH */
+			case 11:
+				  c = 'v';
+				if (0)
+					/* FALLTHROUGH */
+			case '\033':
+				/* take E not e because \e is \ in *roff */
+				  c = 'E';
+				/* FALLTHROUGH */
+			case '\\':
+				shf_putc('\\', shf);
+
+				if (0)
+					/* FALLTHROUGH */
+			default:
+				  if (c < 32 || c > 0x7E) {
+					/* FALLTHROUGH */
+			case '\'':
+					shf_fprintf(shf, "\\%03o", c);
+					break;
+				}
+
+				shf_putc(c, shf);
+				break;
+			}
+		}
+		inquote = true;
 	}
 	if (inquote)
-		shf_putc('\'', shl_stdout);
+		shf_putc('\'', shf);
 }
 
 /*
@@ -1072,35 +1167,34 @@ print_value_quoted(const char *s)
  * the i-th element
  */
 void
-print_columns(struct shf *shf, int n,
-    char *(*func)(char *, size_t, int, const void *),
+print_columns(struct shf *shf, unsigned int n,
+    char *(*func)(char *, size_t, unsigned int, const void *),
     const void *arg, size_t max_oct, size_t max_colz, bool prefcol)
 {
-	int i, r, c, rows, cols, nspace, max_col;
+	unsigned int i, r, c, rows, cols, nspace, max_col;
 	char *str;
 
-	if (n <= 0) {
+	if (!n)
+		return;
+
+	if (max_colz > 2147483646) {
 #ifndef MKSH_SMALL
-		internal_warningf("print_columns called with n=%d <= 0", n);
+		internal_warningf("print_columns called with %s=%zu >= INT_MAX",
+		    "max_col", max_colz);
 #endif
 		return;
 	}
+	max_col = (unsigned int)max_colz;
 
-	if (max_colz > 2147483647) {
+	if (max_oct > 2147483646) {
 #ifndef MKSH_SMALL
-		internal_warningf("print_columns called with max_col=%zu > INT_MAX",
-		    max_colz);
+		internal_warningf("print_columns called with %s=%zu >= INT_MAX",
+		    "max_oct", max_oct);
 #endif
 		return;
 	}
-	max_col = (int)max_colz;
-
 	++max_oct;
 	str = alloc(max_oct, ATEMP);
-
-	/* ensure x_cols is valid first */
-	if (x_cols < MIN_COLS)
-		change_winsz();
 
 	/*
 	 * We use (max_col + 1) to consider the space separator.
@@ -1219,7 +1313,7 @@ reset_nonblock(int fd)
 char *
 ksh_get_wd(void)
 {
-#ifdef NO_PATH_MAX
+#ifdef MKSH__NO_PATH_MAX
 	char *rv, *cp;
 
 	if ((cp = get_current_dir_name())) {
@@ -1239,6 +1333,10 @@ ksh_get_wd(void)
 	return (rv);
 }
 
+#ifndef ELOOP
+#define ELOOP		E2BIG
+#endif
+
 char *
 do_realpath(const char *upath)
 {
@@ -1248,7 +1346,7 @@ do_realpath(const char *upath)
 	size_t len;
 	int llen;
 	struct stat sb;
-#ifdef NO_PATH_MAX
+#ifdef MKSH__NO_PATH_MAX
 	size_t ldestlen = 0;
 #define pathlen sb.st_size
 #define pathcnd (ldestlen < (pathlen + 1))
@@ -1316,7 +1414,7 @@ do_realpath(const char *upath)
 		*xp = '\0';
 
 		/* lstat the current output, see if it's a symlink */
-		if (lstat(Xstring(xs, xp), &sb)) {
+		if (mksh_lstat(Xstring(xs, xp), &sb)) {
 			/* lstat failed */
 			if (errno == ENOENT) {
 				/* because the pathname does not exist */
@@ -1335,6 +1433,7 @@ do_realpath(const char *upath)
 
 		/* check if we encountered a symlink? */
 		if (S_ISLNK(sb.st_mode)) {
+#ifndef MKSH__NO_SYMLINK
 			/* reached maximum recursion depth? */
 			if (!symlinks--) {
 				/* yep, prevent infinite loops */
@@ -1344,7 +1443,7 @@ do_realpath(const char *upath)
 
 			/* get symlink(7) target */
 			if (pathcnd) {
-#ifdef NO_PATH_MAX
+#ifdef MKSH__NO_PATH_MAX
 				if (notoktoadd(pathlen, 1)) {
 					errno = ENAMETOOLONG;
 					goto notfound;
@@ -1369,7 +1468,9 @@ do_realpath(const char *upath)
 			if (ldest[0] != '/') {
 				/* symlink target is a relative path */
 				xp = Xrestpos(xs, xp, pos);
-			} else {
+			} else
+#endif
+			  {
 				/* symlink target is an absolute path */
 				xp = Xstring(xs, xp);
  beginning_of_a_pathname:
@@ -1730,7 +1831,7 @@ c_cd(const char **wp)
 		return (2);
 	}
 
-#ifdef NO_PATH_MAX
+#ifdef MKSH__NO_PATH_MAX
 	/* only a first guess; make_path will enlarge xs if necessary */
 	XinitN(xs, 1024, ATEMP);
 #else
@@ -1752,7 +1853,7 @@ c_cd(const char **wp)
 		if (cdnode)
 			bi_errorf("%s: %s", dir, "bad directory");
 		else
-			bi_errorf("%s: %s", tryp, strerror(errno));
+			bi_errorf("%s: %s", tryp, cstrerror(errno));
 		afree(allocd, ATEMP);
 		Xfree(xs, xp);
 		return (2);
@@ -1809,7 +1910,7 @@ c_cd(const char **wp)
 }
 
 
-#ifdef TIOCSCTTY
+#ifdef KSH_CHVT_CODE
 extern void chvt_reinit(void);
 
 static void
@@ -1847,9 +1948,9 @@ chvt(const char *fn)
 			    "new shell is potentially insecure, can't revoke",
 			    fn);
 	}
-	if ((fd = open(fn, O_RDWR)) == -1) {
+	if ((fd = open(fn, O_RDWR)) < 0) {
 		sleep(1);
-		if ((fd = open(fn, O_RDWR)) == -1)
+		if ((fd = open(fn, O_RDWR)) < 0)
 			errorf("%s: %s %s", "chvt", "can't open", fn);
 	}
 	switch (fork()) {
@@ -1886,19 +1987,6 @@ chvt(const char *fn)
 #endif
 
 #ifdef DEBUG
-#define assert_eq(name, a, b) char name[a == b ? 1 : -1]
-#define assert_ge(name, a, b) char name[a >= b ? 1 : -1]
-assert_ge(intsize_is_okay, sizeof(int), 4);
-assert_eq(intsizes_are_okay, sizeof(int), sizeof(unsigned int));
-assert_ge(longsize_is_okay, sizeof(long), sizeof(int));
-assert_eq(arisize_is_okay, sizeof(mksh_ari_t), 4);
-assert_eq(uarisize_is_okay, sizeof(mksh_uari_t), 4);
-assert_eq(sizesizes_are_okay, sizeof(size_t), sizeof(ssize_t));
-assert_eq(ptrsizes_are_okay, sizeof(ptrdiff_t), sizeof(void *));
-assert_eq(ptrsize_is_sizet, sizeof(ptrdiff_t), sizeof(size_t));
-/* formatting routines assume this */
-assert_ge(ptr_fits_in_long, sizeof(long), sizeof(size_t));
-
 char *
 strchr(char *p, int ch)
 {
@@ -1930,29 +2018,9 @@ strstr(char *b, const char *l)
 }
 #endif
 
-#if !HAVE_STRCASESTR
-const char *
-stristr(const char *b, const char *l)
-{
-	char first, c;
-	size_t n;
-
-	if ((first = *l++), ((first = ksh_tolower(first)) == '\0'))
-		return (b);
-	n = strlen(l);
- stristr_look:
-	while ((c = *b++), ((c = ksh_tolower(c)) != first))
-		if (c == '\0')
-			return (NULL);
-	if (strncasecmp(b, l, n))
-		goto stristr_look;
-	return (b - 1);
-}
-#endif
-
-#ifdef MKSH_SMALL
+#if defined(MKSH_SMALL) && !defined(MKSH_SMALL_BUT_FAST)
 char *
-strndup_(const char *src, size_t len, Area *ap)
+strndup_i(const char *src, size_t len, Area *ap)
 {
 	char *dst = NULL;
 
@@ -1965,9 +2033,9 @@ strndup_(const char *src, size_t len, Area *ap)
 }
 
 char *
-strdup_(const char *src, Area *ap)
+strdup_i(const char *src, Area *ap)
 {
-	return (src == NULL ? NULL : strndup_(src, strlen(src), ap));
+	return (src == NULL ? NULL : strndup_i(src, strlen(src), ap));
 }
 #endif
 

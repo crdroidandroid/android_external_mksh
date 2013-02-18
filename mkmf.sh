@@ -1,5 +1,5 @@
-# Copyright © 2010
-#	Thorsten Glaser <t.glaser@tarent.de>
+# Copyright © 2010, 2012, 2013
+#	Thorsten Glaser <tg@mirbsd.org>
 # This file is provided under the same terms as mksh.
 #-
 # Helper script to let src/Build.sh generate Makefrag.inc
@@ -8,11 +8,21 @@
 # This script is supposed to be run from/inside AOSP by the
 # porter of mksh to Android (and only manually).
 
+if test x"$1" = x"-t"; then
+	# test compilation
+	args=-r
+	mkmfmode=1
+else
+	# prepare for AOSP
+	args=-M
+	mkmfmode=0
+fi
+
 cd "$(dirname "$0")"
 srcdir=$(pwd)
 rm -rf tmp
 mkdir tmp
-cd ../../..
+cd ../..
 aospdir=$(pwd)
 cd $srcdir/tmp
 
@@ -42,64 +52,124 @@ LIBS=
 # Since we no longer use the NDK, the AOSP has to have been
 # built before using this script (targetting generic/emulator).
 
-CC=$aospdir/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/arm-eabi-gcc
-addvar CPPFLAGS -I$aospdir/system/core/include \
-    -I$aospdir/hardware/libhardware/include \
-    -I$aospdir/system/core/include \
-    -I$aospdir/hardware/libhardware/include \
-    -I$aospdir/hardware/libhardware_legacy/include \
-    -I$aospdir/hardware/ril/include \
-    -I$aospdir/libnativehelper/include \
-    -I$aospdir/frameworks/base/include \
-    -I$aospdir/frameworks/base/opengl/include \
-    -I$aospdir/external/skia/include \
-    -I$aospdir/out/target/product/generic/obj/include \
-    -I$aospdir/bionic/libc/arch-arm/include \
-    -I$aospdir/bionic/libc/include \
-    -I$aospdir/bionic/libstdc++/include \
-    -I$aospdir/bionic/libc/kernel/common \
-    -I$aospdir/bionic/libc/kernel/arch-arm \
-    -I$aospdir/bionic/libm/include \
-    -I$aospdir/bionic/libm/include/arch/arm \
-    -I$aospdir/bionic/libthread_db/include \
-    -D__ARM_ARCH_5__ -D__ARM_ARCH_5T__ -D__ARM_ARCH_5E__ -D__ARM_ARCH_5TE__ \
-    -I$aospdir/system/core/include/arch/linux-arm/ \
-    -include $aospdir/system/core/include/arch/linux-arm/AndroidConfig.h \
+CC=$aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc
+addvar CPPFLAGS \
+    -I$aospdir/libnativehelper/include/nativehelper \
+    -isystem $aospdir/system/core/include \
+    -isystem $aospdir/hardware/libhardware/include \
+    -isystem $aospdir/hardware/libhardware_legacy/include \
+    -isystem $aospdir/hardware/ril/include \
+    -isystem $aospdir/libnativehelper/include \
+    -isystem $aospdir/frameworks/native/include \
+    -isystem $aospdir/frameworks/native/opengl/include \
+    -isystem $aospdir/frameworks/av/include \
+    -isystem $aospdir/frameworks/base/include \
+    -isystem $aospdir/frameworks/base/opengl/include \
+    -isystem $aospdir/external/skia/include \
+    -isystem $aospdir/out/target/product/generic/obj/include \
+    -isystem $aospdir/bionic/libc/arch-arm/include \
+    -isystem $aospdir/bionic/libc/include \
+    -isystem $aospdir/bionic/libstdc++/include \
+    -isystem $aospdir/bionic/libc/kernel/common \
+    -isystem $aospdir/bionic/libc/kernel/arch-arm \
+    -isystem $aospdir/bionic/libm/include \
+    -isystem $aospdir/bionic/libm/include/arm \
+    -isystem $aospdir/bionic/libthread_db/include \
+    -D_FORTIFY_SOURCE=1 \
+    -include $aospdir/build/core/combo/include/arch/linux-arm/AndroidConfig.h \
+    -I$aospdir/build/core/combo/include/arch/linux-arm/ \
     -DANDROID -DNDEBUG -UDEBUG
-addvar CFLAGS -fno-exceptions -Wno-multichar -msoft-float -fpic \
-    -ffunction-sections -funwind-tables -fstack-protector -fno-short-enums \
-    -march=armv5te -mtune=xscale -mthumb-interwork -fmessage-length=0 \
-    -W -Wall -Wno-unused -Winit-self -Wpointer-arith -Werror=return-type \
-    -Werror=non-virtual-dtor -Werror=address -Werror=sequence-point \
-    -Wstrict-aliasing=2 -finline-functions -fno-inline-functions-called-once \
-    -fgcse-after-reload -frerun-cse-after-loop -frename-registers -mthumb \
-    -Os -fomit-frame-pointer -fno-strict-aliasing -finline-limit=64
-addvar LDFLAGS -nostdlib -Bdynamic -Wl,-T,$aospdir/build/core/armelf.x \
-    -Wl,-dynamic-linker,/system/bin/linker -Wl,--gc-sections \
-    -Wl,-z,nocopyreloc -Wl,--no-undefined \
+# who would have thought the AOSP devs are funny? -fno-builtin-sin
+addvar CFLAGS \
+    -fno-exceptions \
+    -Wno-multichar \
+    -msoft-float \
+    -fpic \
+    -fPIE \
+    -ffunction-sections \
+    -fdata-sections \
+    -funwind-tables \
+    -fstack-protector \
+    -Wa,--noexecstack \
+    -Werror=format-security \
+    -fno-short-enums \
+    -march=armv7-a \
+    -mfloat-abi=softfp \
+    -mfpu=vfpv3-d16 \
+    -Wno-unused-but-set-variable \
+    -fno-builtin-sin \
+    -fno-strict-volatile-bitfields \
+    -Wno-psabi \
+    -mthumb-interwork \
+    -fmessage-length=0 \
+    -W \
+    -Wall \
+    -Wno-unused \
+    -Winit-self \
+    -Wpointer-arith \
+    -Werror=return-type \
+    -Werror=non-virtual-dtor \
+    -Werror=address \
+    -Werror=sequence-point \
+    -g \
+    -Wstrict-aliasing=2 \
+    -fgcse-after-reload \
+    -frerun-cse-after-loop \
+    -frename-registers \
+    -mthumb \
+    -Os \
+    -fomit-frame-pointer \
+    -fno-strict-aliasing
+addvar LDFLAGS \
+    -nostdlib \
+    -Bdynamic \
+    -pie \
+    -Wl,-dynamic-linker,/system/bin/linker \
+    -Wl,--gc-sections \
+    -Wl,-z,nocopyreloc \
+    -Wl,-z,noexecstack \
+    -Wl,-z,relro \
+    -Wl,-z,now \
+    -Wl,--warn-shared-textrel \
+    -Wl,--icf=safe \
+    -Wl,--fix-cortex-a8 \
+    -Wl,--no-undefined \
     $aospdir/out/target/product/generic/obj/lib/crtbegin_dynamic.o
-addvar LIBS -L$aospdir/out/target/product/generic/obj/lib \
-    -Wl,-rpath-link=$aospdir/out/target/product/generic/obj/lib -lc \
-    $aospdir/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/../lib/gcc/arm-eabi/4.4.0/interwork/libgcc.a \
+addvar LIBS \
+    -L$aospdir/out/target/product/generic/obj/lib \
+    -Wl,-rpath-link=$aospdir/out/target/product/generic/obj/lib \
+    -lc \
+    -Wl,--no-whole-archive \
+    $aospdir/out/target/product/generic/obj/STATIC_LIBRARIES/libcompiler-rt-extras_intermediates/libcompiler-rt-extras.a \
+    $aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/../lib/gcc/arm-linux-androideabi/4.7/armv7-a/libgcc.a \
     $aospdir/out/target/product/generic/obj/lib/crtend_android.o
 
 
+### Flags used by test builds
+if test $mkmfmode = 1; then
+	addvar CPPFLAGS '-DMKSHRC_PATH=\"/system/etc/mkshrc\"'
+	addvar CPPFLAGS '-DMKSH_DEFAULT_EXECSHELL=\"/system/bin/sh\"'
+	addvar CPPFLAGS '-DMKSH_DEFAULT_TMPDIR=\"/data/local/tmp\"'
+fi
+
 ### Override flags
-# We don’t even *support* UTF-8 by default ☹
-addvar CPPFLAGS -DMKSH_ASSUME_UTF8=0
+# Let the shell free all memory upon exiting
+addvar CPPFLAGS -DDEBUG_LEAKS
+# UTF-8 works nowadays
+addvar CPPFLAGS -DMKSH_ASSUME_UTF8
+# Reduce filedescriptor usage
+addvar CPPFLAGS -DMKSH_CONSERVATIVE_FDS
+# Leave out RCS ID strings from the binary
+addvar CPPFLAGS -DMKSH_DONT_EMIT_IDSTRING
 # No getpwnam() calls (affects "cd ~username/" only)
 addvar CPPFLAGS -DMKSH_NOPWNAM
-# Compile an extra small mksh (optional)
-#addvar CPPFLAGS -DMKSH_SMALL
 # Leave out the ulimit builtin
 #addvar CPPFLAGS -DMKSH_NO_LIMITS
+# Compile an extra small mksh (optional)
+#addvar CPPFLAGS -DMKSH_SMALL
 
 # Set target platform
-TARGET_OS=Linux
-# Building with -std=c99 or -std=gnu99 clashes with Bionic headers
-HAVE_CAN_STDG99=0
-HAVE_CAN_STDC99=0
-export HAVE_CAN_STDG99 HAVE_CAN_STDC99
+TARGET_OS=Android
 
 # Android-x86 does not have helper functions for ProPolice SSP
 # and AOSP adds the flags by itself (same for warning flags)
@@ -108,16 +178,19 @@ HAVE_CAN_FSTACKPROTECTORALL=0
 HAVE_CAN_WALL=0
 export HAVE_CAN_FNOSTRICTALIASING HAVE_CAN_FSTACKPROTECTORALL HAVE_CAN_WALL
 
-# disable the mknod(8) built-in to get rid of needing setmode.c
-HAVE_MKNOD=0; export HAVE_MKNOD
-
 # even the idea of persistent history on a phone is funny
 HAVE_PERSISTENT_HISTORY=0; export HAVE_PERSISTENT_HISTORY
 
+# this is a run-time check and dependent on the target CPU
+# architecture (at _least_!) and cannot be auto-detected,
+# so always include the safety check even if unnecessary
+HAVE_SILENT_IDIVWRAPV=0; export HAVE_SILENT_IDIVWRAPV
+
 # ... and run it!
 export CC CPPFLAGS CFLAGS LDFLAGS LIBS TARGET_OS
-sh ../src/Build.sh -M
+sh ../src/Build.sh $args
 rv=$?
+test x"$args" = x"-r" && exit $rv
 test x0 = x"$rv" && mv -f Makefrag.inc ../
 cd ..
 rm -rf tmp

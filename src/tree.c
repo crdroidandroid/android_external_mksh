@@ -1,7 +1,8 @@
-/*	$OpenBSD: tree.c,v 1.19 2008/08/11 21:50:35 jaredy Exp $	*/
+/*	$OpenBSD: tree.c,v 1.20 2012/06/27 07:17:19 otto Exp $	*/
 
 /*-
- * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+ * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+ *		 2011, 2012
  *	Thorsten Glaser <tg@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
@@ -22,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/tree.c,v 1.51 2011/09/07 15:24:21 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/tree.c,v 1.67 2012/12/04 01:10:35 tg Exp $");
 
 #define INDENT	8
 
@@ -35,6 +36,8 @@ static void iofree(struct ioword **, Area *);
 
 /* "foo& ; bar" and "foo |& ; bar" are invalid */
 static bool prevent_semicolon;
+
+static const char Telif_pT[] = "elif %T";
 
 /*
  * print a command tree
@@ -52,6 +55,25 @@ ptree(struct op *t, int indent, struct shf *shf)
 		return;
 	switch (t->type) {
 	case TCOM:
+		prevent_semicolon = false;
+		/*
+		 * special-case 'var=<<EOF' (rough; see
+		 * exec.c:execute() for full code)
+		 */
+		if (
+		    /* we have zero arguments, i.e. no programme to run */
+		    t->args[0] == NULL &&
+		    /* we have exactly one variable assignment */
+		    t->vars[0] != NULL && t->vars[1] == NULL &&
+		    /* we have exactly one I/O redirection */
+		    t->ioact != NULL && t->ioact[0] != NULL &&
+		    t->ioact[1] == NULL &&
+		    /* of type "here document" (or "here string") */
+		    (t->ioact[0]->flag & IOTYPE) == IOHERE) {
+			fptreef(shf, indent, "%S", t->vars[0]);
+			break;
+		}
+
 		if (t->vars) {
 			w = (const char **)t->vars;
 			while (*w)
@@ -64,7 +86,6 @@ ptree(struct op *t, int indent, struct shf *shf)
 				fptreef(shf, indent, "%S ", *w++);
 		} else
 			shf_puts("#no-args# ", shf);
-		prevent_semicolon = false;
 		break;
 	case TEXEC:
 		t = t->left;
@@ -126,38 +147,39 @@ ptree(struct op *t, int indent, struct shf *shf)
 		}
 		fptreef(shf, indent, "%Nesac ");
 		break;
-#ifndef MKSH_NO_DEPRECATED_WARNING
+#ifdef DEBUG
 	case TELIF:
 		internal_errorf("TELIF in tree.c:ptree() unexpected");
 		/* FALLTHROUGH */
 #endif
 	case TIF:
 		i = 2;
+		t1 = t;
 		goto process_TIF;
 		do {
-			t = t->right;
+			t1 = t1->right;
 			i = 0;
 			fptreef(shf, indent, "%;");
  process_TIF:
 			/* 5 == strlen("elif ") */
-			fptreef(shf, indent + 5 - i, "elif %T" + i, t->left);
-			t = t->right;
-			if (t->left != NULL) {
+			fptreef(shf, indent + 5 - i, Telif_pT + i, t1->left);
+			t1 = t1->right;
+			if (t1->left != NULL) {
 				fptreef(shf, indent, "%;");
 				fptreef(shf, indent + INDENT, "%s%N%T",
-				    "then", t->left);
+				    "then", t1->left);
 			}
-		} while (t->right && t->right->type == TELIF);
-		if (t->right != NULL) {
+		} while (t1->right && t1->right->type == TELIF);
+		if (t1->right != NULL) {
 			fptreef(shf, indent, "%;");
 			fptreef(shf, indent + INDENT, "%s%N%T",
-			    "else", t->right);
+			    "else", t1->right);
 		}
 		fptreef(shf, indent, "%;fi ");
 		break;
 	case TWHILE:
 	case TUNTIL:
-		/* 6 == strlen("while"/"until") */
+		/* 6 == strlen("while "/"until ") */
 		fptreef(shf, indent + 6, "%s %T",
 		    (t->type == TWHILE) ? "while" : "until",
 		    t->left);
@@ -214,8 +236,10 @@ ptree(struct op *t, int indent, struct shf *shf)
 		 * often leads to an extra blank line, but it's not
 		 * worth worrying about)
 		 */
-		if (need_nl)
+		if (need_nl) {
 			shf_putc('\n', shf);
+			prevent_semicolon = true;
+		}
 	}
 }
 
@@ -256,8 +280,8 @@ pioact(struct shf *shf, int indent, struct ioword *iop)
 	/* name/delim are NULL when printing syntax errors */
 	if (type == IOHERE) {
 		if (iop->delim)
-			fptreef(shf, indent, "%S ", iop->delim);
-		else
+			wdvarput(shf, iop->delim, 0, WDS_TPUTS);
+		if (iop->flag & IOHERESTR)
 			shf_putc(' ', shf);
 	} else if (iop->name)
 		fptreef(shf, indent, (iop->flag & IONAMEXP) ? "%s " : "%S ",
@@ -270,6 +294,7 @@ static const char *
 wdvarput(struct shf *shf, const char *wp, int quotelevel, int opmode)
 {
 	int c;
+	const char *cs;
 
 	/*-
 	 * problems:
@@ -289,7 +314,7 @@ wdvarput(struct shf *shf, const char *wp, int quotelevel, int opmode)
 		case CHAR:
 			c = *wp++;
 			if ((opmode & WDS_MAGIC) &&
-			    (ISMAGIC(c) || c == '[' || c == NOT ||
+			    (ISMAGIC(c) || c == '[' || c == '!' ||
 			    c == '-' || c == ']' || c == '*' || c == '?'))
 				shf_putc(MAGIC, shf);
 			shf_putc(c, shf);
@@ -313,16 +338,20 @@ wdvarput(struct shf *shf, const char *wp, int quotelevel, int opmode)
 		}
 		case COMSUB:
 			shf_puts("$(", shf);
+			cs = ")";
+ pSUB:
 			while ((c = *wp++) != 0)
 				shf_putc(c, shf);
-			shf_putc(')', shf);
+			shf_puts(cs, shf);
 			break;
+		case FUNSUB:
+			shf_puts("${ ", shf);
+			cs = ";}";
+			goto pSUB;
 		case EXPRSUB:
 			shf_puts("$((", shf);
-			while ((c = *wp++) != 0)
-				shf_putc(c, shf);
-			shf_puts("))", shf);
-			break;
+			cs = "))";
+			goto pSUB;
 		case OQUOTE:
 			if (opmode & WDS_TPUTS) {
 				quotelevel++;
@@ -558,6 +587,7 @@ wdscan(const char *wp, int c)
 			wp++;
 			break;
 		case COMSUB:
+		case FUNSUB:
 		case EXPRSUB:
 			while (*wp++ != 0)
 				;
@@ -711,24 +741,42 @@ fpFUNCTf(struct shf *shf, int i, bool isksh, const char *k, struct op *v)
 void
 vistree(char *dst, size_t sz, struct op *t)
 {
-	int c;
+	unsigned int c;
 	char *cp, *buf;
+	size_t n;
 
-	buf = alloc(sz, ATEMP);
-	snptreef(buf, sz, "%T", t);
+	buf = alloc(sz + 8, ATEMP);
+	snptreef(buf, sz + 8, "%T", t);
 	cp = buf;
-	while ((c = *cp++)) {
-		if (((c & 0x60) == 0) || ((c & 0x7F) == 0x7F)) {
-			/* C0 or C1 control character or DEL */
-			if (!--sz)
-				break;
-			*dst++ = (c & 0x80) ? '$' : '^';
-			c = (c & 0x7F) ^ 0x40;
-		}
-		if (!--sz)
-			break;
-		*dst++ = c;
+ vist_loop:
+	if (UTFMODE && (n = utf_mbtowc(&c, cp)) != (size_t)-1) {
+		if (c == 0 || n >= sz)
+			/* NUL or not enough free space */
+			goto vist_out;
+		/* copy multibyte char */
+		sz -= n;
+		while (n--)
+			*dst++ = *cp++;
+		goto vist_loop;
 	}
+	if (--sz == 0 || (c = (unsigned char)(*cp++)) == 0)
+		/* NUL or not enough free space */
+		goto vist_out;
+	if ((c & 0x60) == 0 || (c & 0x7F) == 0x7F) {
+		/* C0 or C1 control character or DEL */
+		if (--sz == 0)
+			/* not enough free space for two chars */
+			goto vist_out;
+		*dst++ = (c & 0x80) ? '$' : '^';
+		c = (c & 0x7F) ^ 0x40;
+	} else if (UTFMODE && c > 0x7F) {
+		/* better not try to display broken multibyte chars */
+		c = '?';
+	}
+	*dst++ = c;
+	goto vist_loop;
+
+ vist_out:
 	*dst = '\0';
 	afree(buf, ATEMP);
 }
@@ -747,7 +795,7 @@ dumpchar(struct shf *shf, int c)
 
 /* see: wdvarput */
 static const char *
-dumpwdvar_(struct shf *shf, const char *wp, int quotelevel)
+dumpwdvar_i(struct shf *shf, const char *wp, int quotelevel)
 {
 	int c;
 
@@ -779,6 +827,9 @@ dumpwdvar_(struct shf *shf, const char *wp, int quotelevel)
  closeandout:
 			shf_putc('>', shf);
 			break;
+		case FUNSUB:
+			shf_puts("FUNSUB<", shf);
+			goto dumpsub;
 		case EXPRSUB:
 			shf_puts("EXPRSUB<", shf);
 			goto dumpsub;
@@ -799,7 +850,7 @@ dumpwdvar_(struct shf *shf, const char *wp, int quotelevel)
 			while ((c = *wp++) != 0)
 				dumpchar(shf, c);
 			shf_putc('|', shf);
-			wp = dumpwdvar_(shf, wp, 0);
+			wp = dumpwdvar_i(shf, wp, 0);
 			break;
 		case CSUBST:
 			shf_puts("]CSUBST(", shf);
@@ -826,16 +877,75 @@ dumpwdvar_(struct shf *shf, const char *wp, int quotelevel)
 void
 dumpwdvar(struct shf *shf, const char *wp)
 {
-	dumpwdvar_(shf, wp, 0);
+	dumpwdvar_i(shf, wp, 0);
+}
+
+void
+dumpioact(struct shf *shf, struct op *t)
+{
+	struct ioword **ioact, *iop;
+
+	if ((ioact = t->ioact) == NULL)
+		return;
+
+	shf_puts("{IOACT", shf);
+	while ((iop = *ioact++) != NULL) {
+		int type = iop->flag & IOTYPE;
+#define DT(x) case x: shf_puts(#x, shf); break;
+#define DB(x) if (iop->flag & x) shf_puts("|" #x, shf);
+
+		shf_putc(';', shf);
+		switch (type) {
+		DT(IOREAD)
+		DT(IOWRITE)
+		DT(IORDWR)
+		DT(IOHERE)
+		DT(IOCAT)
+		DT(IODUP)
+		default:
+			shf_fprintf(shf, "unk%d", type);
+		}
+		DB(IOEVAL)
+		DB(IOSKIP)
+		DB(IOCLOB)
+		DB(IORDUP)
+		DB(IONAMEXP)
+		DB(IOBASH)
+		DB(IOHERESTR)
+		DB(IONDELIM)
+		shf_fprintf(shf, ",unit=%d", iop->unit);
+		if (iop->delim) {
+			shf_puts(",delim<", shf);
+			dumpwdvar(shf, iop->delim);
+			shf_putc('>', shf);
+		}
+		if (iop->name) {
+			if (iop->flag & IONAMEXP) {
+				shf_puts(",name=", shf);
+				print_value_quoted(shf, iop->name);
+			} else {
+				shf_puts(",name<", shf);
+				dumpwdvar(shf, iop->name);
+				shf_putc('>', shf);
+			}
+		}
+		if (iop->heredoc) {
+			shf_puts(",heredoc=", shf);
+			print_value_quoted(shf, iop->heredoc);
+		}
+#undef DT
+#undef DB
+	}
+	shf_putc('}', shf);
 }
 
 void
 dumptree(struct shf *shf, struct op *t)
 {
-	int i;
+	int i, j;
 	const char **w, *name;
 	struct op *t1;
-	static int nesting = 0;
+	static int nesting;
 
 	for (i = 0; i < nesting; ++i)
 		shf_putc('\t', shf);
@@ -845,6 +955,7 @@ dumptree(struct shf *shf, struct op *t)
 		name = "(null)";
 		goto out;
 	}
+	dumpioact(shf, t);
 	switch (t->type) {
 #define OPEN(x) case x: name = #x; shf_puts(" {" #x ":", shf); /*}*/
 
@@ -854,7 +965,7 @@ dumptree(struct shf *shf, struct op *t)
 			w = (const char **)t->vars;
 			while (*w) {
 				shf_putc('\n', shf);
-				for (int j = 0; j < nesting; ++j)
+				for (j = 0; j < nesting; ++j)
 					shf_putc('\t', shf);
 				shf_fprintf(shf, " var%d<", i++);
 				dumpwdvar(shf, *w++);
@@ -867,7 +978,7 @@ dumptree(struct shf *shf, struct op *t)
 			w = t->args;
 			while (*w) {
 				shf_putc('\n', shf);
-				for (int j = 0; j < nesting; ++j)
+				for (j = 0; j < nesting; ++j)
 					shf_putc('\t', shf);
 				shf_fprintf(shf, " arg%d<", i++);
 				dumpwdvar(shf, *w++);
@@ -907,7 +1018,7 @@ dumptree(struct shf *shf, struct op *t)
 		w = t->args;
 		while (*w) {
 			shf_putc('\n', shf);
-			for (int j = 0; j < nesting; ++j)
+			for (j = 0; j < nesting; ++j)
 				shf_putc('\t', shf);
 			shf_fprintf(shf, " arg%d<", i++);
 			dumpwdvar(shf, *w++);
@@ -922,7 +1033,7 @@ dumptree(struct shf *shf, struct op *t)
 			w = (const char **)t->vars;
 			while (*w) {
 				shf_putc('\n', shf);
-				for (int j = 0; j < nesting; ++j)
+				for (j = 0; j < nesting; ++j)
 					shf_putc('\t', shf);
 				shf_fprintf(shf, " var%d<", i++);
 				dumpwdvar(shf, *w++);
@@ -937,7 +1048,7 @@ dumptree(struct shf *shf, struct op *t)
 		i = 0;
 		for (t1 = t->left; t1 != NULL; t1 = t1->right) {
 			shf_putc('\n', shf);
-			for (int j = 0; j < nesting; ++j)
+			for (j = 0; j < nesting; ++j)
 				shf_putc('\t', shf);
 			shf_fprintf(shf, " sub%d[(", i);
 			w = (const char **)t1->vars;
@@ -948,6 +1059,7 @@ dumptree(struct shf *shf, struct op *t)
 				++w;
 			}
 			shf_putc(')', shf);
+			dumpioact(shf, t);
 			shf_putc('\n', shf);
 			dumptree(shf, t1->left);
 			shf_fprintf(shf, " ;%c/%d]", t1->u.charflag, i++);
@@ -974,6 +1086,7 @@ dumptree(struct shf *shf, struct op *t)
 		shf_putc('\n', shf);
 		dumptree(shf, t->left);
 		t = t->right;
+		dumpioact(shf, t);
 		if (t->left != NULL) {
 			shf_puts(" /TTHEN:\n", shf);
 			dumptree(shf, t->left);
@@ -981,6 +1094,7 @@ dumptree(struct shf *shf, struct op *t)
 		if (t->right && t->right->type == TELIF) {
 			shf_puts(" /TELIF:", shf);
 			t = t->right;
+			dumpioact(shf, t);
 			goto dumpif;
 		}
 		if (t->right != NULL) {
