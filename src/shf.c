@@ -1,7 +1,7 @@
 /*	$OpenBSD: shf.c,v 1.15 2006/04/02 00:48:33 deraadt Exp $	*/
 
 /*-
- * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011
+ * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011, 2012
  *	Thorsten Glaser <tg@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
@@ -24,7 +24,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/shf.c,v 1.44 2011/09/07 15:24:20 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/shf.c,v 1.56 2013/01/01 03:32:44 tg Exp $");
 
 /* flags to shf_emptybuf() */
 #define EB_READSW	0x01	/* about to switch to reading */
@@ -490,7 +490,7 @@ shf_getse(char *buf, ssize_t bsize, struct shf *shf)
 		return (NULL);
 
 	/* save room for NUL */
-	--bsize;	
+	--bsize;
 	do {
 		if (shf->rnleft == 0) {
 			if (shf_fillbuf(shf) == EOF)
@@ -552,7 +552,7 @@ shf_ungetc(int c, struct shf *shf)
 		 * Can unget what was read, but not something different;
 		 * we don't want to modify a string.
 		 */
-		if (shf->rp[-1] != c)
+		if ((int)(shf->rp[-1]) != c)
 			return (EOF);
 		shf->flags &= ~SHF_EOF;
 		shf->rp--;
@@ -722,7 +722,7 @@ shf_snprintf(char *buf, ssize_t bsize, const char *fmt, ...)
 	n = shf_vfprintf(&shf, fmt, args);
 	va_end(args);
 	/* NUL terminates */
-	shf_sclose(&shf); 
+	shf_sclose(&shf);
 	return (n);
 }
 
@@ -764,7 +764,12 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 	ssize_t field, precision, len;
 	unsigned long lnum;
 	/* %#o produces the longest output */
-	char numbuf[(8 * sizeof(long) + 2) / 3 + 1];
+	char numbuf[(8 * sizeof(long) + 2) / 3 + 1
+#ifdef DEBUG
+		/* a NUL for LLVM/Clang scan-build */
+		+ 1
+#endif
+	    ];
 	/* this stuff for dealing with the buffer */
 	ssize_t nwritten = 0;
 
@@ -842,12 +847,16 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 				continue;
 			}
 			if (ksh_isdigit(c)) {
+				bool overflowed = false;
+
 				tmp = c - '0';
-				while (c = *fmt++, ksh_isdigit(c))
+				while (c = *fmt++, ksh_isdigit(c)) {
+					if (notok2mul(2147483647, tmp, 10))
+						overflowed = true;
 					tmp = tmp * 10 + c - '0';
+				}
 				--fmt;
-				if (tmp < 0)
-					/* overflow? */
+				if (overflowed)
 					tmp = 0;
 				if (flags & FL_DOT)
 					precision = tmp;
@@ -898,6 +907,16 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
  integral:
 			flags |= FL_NUMBER;
 			cp = numbuf + sizeof(numbuf);
+#ifdef DEBUG
+			/*
+			 * this is necessary so Clang 3.2 realises
+			 * utf_skipcols/shf_putc in the output loop
+			 * terminate; these values are always ASCII
+			 * so an out-of-bounds access cannot happen
+			 * but Clang doesn't know that
+			 */
+			*--cp = '\0';
+#endif
 
 			switch (c) {
 			case 'd':
@@ -949,6 +968,10 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 			}
 			}
 			len = numbuf + sizeof(numbuf) - (s = cp);
+#ifdef DEBUG
+			/* see above comment for Clang 3.2 */
+			--len;
+#endif
 			if (flags & FL_DOT) {
 				if (precision > len) {
 					field = precision;
@@ -967,14 +990,13 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 
 		case 'c':
 			flags &= ~FL_DOT;
-			numbuf[0] = (char)(VA(int));
-			s = numbuf;
-			len = 1;
-			break;
+			c = (char)(VA(int));
+			/* FALLTHROUGH */
 
 		case '%':
 		default:
 			numbuf[0] = c;
+			numbuf[1] = 0;
 			s = numbuf;
 			len = 1;
 			break;
@@ -1042,16 +1064,95 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 	return (shf_error(shf) ? EOF : nwritten);
 }
 
-#ifdef MKSH_SMALL
+#if defined(MKSH_SMALL) && !defined(MKSH_SMALL_BUT_FAST)
 int
 shf_getc(struct shf *shf)
 {
-	return (shf_getc_(shf));
+	return (shf_getc_i(shf));
 }
 
 int
 shf_putc(int c, struct shf *shf)
 {
-	return (shf_putc_(c, shf));
+	return (shf_putc_i(c, shf));
+}
+#endif
+
+#ifdef DEBUG
+const char *
+cstrerror(int errnum)
+{
+#undef strerror
+	return (strerror(errnum));
+#define strerror dontuse_strerror /* poisoned */
+}
+#elif !HAVE_STRERROR
+
+#if HAVE_SYS_ERRLIST
+#if !HAVE_SYS_ERRLIST_DECL
+extern const int sys_nerr;
+extern const char * const sys_errlist[];
+#endif
+#endif
+
+const char *
+cstrerror(int errnum)
+{
+	/* "Unknown error: " + sign + rough estimate + NUL */
+	static char errbuf[15 + 1 + (8 * sizeof(int) + 2) / 3 + 1];
+
+#if HAVE_SYS_ERRLIST
+	if (errnum > 0 && errnum < sys_nerr && sys_errlist[errnum])
+		return (sys_errlist[errnum]);
+#endif
+
+	switch (errnum) {
+	case 0:
+		return ("Undefined error: 0");
+#ifdef EPERM
+	case EPERM:
+		return ("Operation not permitted");
+#endif
+#ifdef ENOENT
+	case ENOENT:
+		return ("No such file or directory");
+#endif
+#ifdef ESRCH
+	case ESRCH:
+		return ("No such process");
+#endif
+#ifdef E2BIG
+	case E2BIG:
+		return ("Argument list too long");
+#endif
+#ifdef ENOEXEC
+	case ENOEXEC:
+		return ("Exec format error");
+#endif
+#ifdef ENOMEM
+	case ENOMEM:
+		return ("Cannot allocate memory");
+#endif
+#ifdef EACCES
+	case EACCES:
+		return ("Permission denied");
+#endif
+#ifdef ENOTDIR
+	case ENOTDIR:
+		return ("Not a directory");
+#endif
+#ifdef EINVAL
+	case EINVAL:
+		return ("Invalid argument");
+#endif
+#ifdef ELOOP
+	case ELOOP:
+		return ("Too many levels of symbolic links");
+#endif
+	default:
+		shf_snprintf(errbuf, sizeof(errbuf),
+		    "Unknown error: %d", errnum);
+		return (errbuf);
+	}
 }
 #endif

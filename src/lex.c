@@ -1,7 +1,8 @@
-/*	$OpenBSD: lex.c,v 1.45 2011/03/09 09:30:39 okan Exp $	*/
+/*	$OpenBSD: lex.c,v 1.46 2013/01/20 14:47:46 stsp Exp $	*/
 
 /*-
- * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+ * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+ *		 2011, 2012, 2013
  *	Thorsten Glaser <tg@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
@@ -22,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/lex.c,v 1.156 2011/09/07 15:24:16 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/lex.c,v 1.182 2013/02/19 18:45:20 tg Exp $");
 
 /*
  * states while lexing word
@@ -37,13 +38,12 @@ __RCSID("$MirOS: src/bin/mksh/lex.c,v 1.156 2011/09/07 15:24:16 tg Exp $");
 #define SQBRACE		7	/* inside "${}" */
 #define SBQUOTE		8	/* inside `` */
 #define SASPAREN	9	/* inside $(( )) */
-#define SHEREDELIM	10	/* parsing <<,<<- delimiter */
-#define SHEREDQUOTE	11	/* parsing " in <<,<<- delimiter */
+#define SHEREDELIM	10	/* parsing <<,<<-,<<< delimiter */
+#define SHEREDQUOTE	11	/* parsing " in <<,<<-,<<< delimiter */
 #define SPATTERN	12	/* parsing *(...|...) pattern (*+?@!) */
 #define SADELIM		13	/* like SBASE, looking for delimiter */
-#define SHERESTRING	14	/* parsing <<< string */
-#define STBRACEKORN	15	/* parsing ${...[#%]...} !FSH */
-#define STBRACEBOURNE	16	/* parsing ${...[#%]...} FSH */
+#define STBRACEKORN	14	/* parsing ${...[#%]...} !FSH */
+#define STBRACEBOURNE	15	/* parsing ${...[#%]...} FSH */
 #define SINVALID	255	/* invalid state */
 
 struct sretrace_info {
@@ -90,7 +90,7 @@ typedef struct {
 
 static void readhere(struct ioword *);
 static void ungetsc(int);
-static void ungetsc_(int);
+static void ungetsc_i(int);
 static int getsc_uu(void);
 static void getsc_line(Source *);
 static int getsc_bn(void);
@@ -99,16 +99,13 @@ static void s_put(int);
 static char *get_brace_var(XString *, char *);
 static bool arraysub(char **);
 static void gethere(bool);
-static Lex_state *push_state_(State_info *, Lex_state *);
-static Lex_state *pop_state_(State_info *, Lex_state *);
+static Lex_state *push_state_i(State_info *, Lex_state *);
+static Lex_state *pop_state_i(State_info *, Lex_state *);
 
 static int dopprompt(const char *, int, bool);
-void yyskiputf8bom(void);
 
 static int backslash_skip;
 static int ignore_backslash_newline;
-static struct sretrace_info *retrace_info;
-short subshell_nesting_level = 0;
 
 /* optimised getsc_bn() */
 #define o_getsc()	(*source->str != '\0' && *source->str != '\\' && \
@@ -130,7 +127,7 @@ short subshell_nesting_level = 0;
 	return (cev);					\
 }
 
-#ifdef MKSH_SMALL
+#if defined(MKSH_SMALL) && !defined(MKSH_SMALL_BUT_FAST)
 static int getsc(void);
 
 static int
@@ -154,13 +151,13 @@ getsc_r(int c)
 
 #define PUSH_STATE(s)	do {					\
 	if (++statep == state_info.end)				\
-		statep = push_state_(&state_info, statep);	\
+		statep = push_state_i(&state_info, statep);	\
 	state = statep->type = (s);				\
 } while (/* CONSTCOND */ 0)
 
 #define POP_STATE()	do {					\
 	if (--statep == state_info.base)			\
-		statep = pop_state_(&state_info, statep);	\
+		statep = pop_state_i(&state_info, statep);	\
 	state = statep->type;					\
 } while (/* CONSTCOND */ 0)
 
@@ -247,7 +244,7 @@ yylex(int cf)
 	if (state == SHEREDELIM) {
 		c = getsc();
 		if (c == '<') {
-			state = SHERESTRING;
+			state = SHEREDELIM;
 			while ((c = getsc()) == ' ' || c == '\t')
 				;
 			ungetsc(c);
@@ -259,8 +256,12 @@ yylex(int cf)
 
 	/* collect non-special or quoted characters to form word */
 	while (!((c = getsc()) == 0 ||
-	    ((state == SBASE || state == SHEREDELIM || state == SHERESTRING) &&
-	    ctype(c, C_LEX1)))) {
+	    ((state == SBASE || state == SHEREDELIM) && ctype(c, C_LEX1)))) {
+		if (state == SBASE &&
+		    subshell_nesting_type == /*{*/ '}' &&
+		    c == /*{*/ '}')
+			/* possibly end ${ :;} */
+			break;
  accept_nonword:
 		Xcheck(ws, wp);
 		switch (state) {
@@ -269,8 +270,8 @@ yylex(int cf)
 				statep->nparen++;
 			else if (c == ')')
 				statep->nparen--;
-			else if (statep->nparen == 0 &&
-			    (c == /*{*/ '}' || c == statep->ls_adelim.delimiter)) {
+			else if (statep->nparen == 0 && (c == /*{*/ '}' ||
+			    c == (int)statep->ls_adelim.delimiter)) {
 				*wp++ = ADELIM;
 				*wp++ = c;
 				if (c == /*{*/ '}' || --statep->ls_adelim.num == 0)
@@ -347,6 +348,22 @@ yylex(int cf)
 				*wp++ = OQUOTE;
 				PUSH_STATE(SDQUOTE);
 				break;
+			case '$':
+				/*
+				 * processing of dollar sign belongs into
+				 * Subst, except for those which can open
+				 * a string: $'…' and $"…"
+				 */
+ subst_dollar_ex:
+				c = getsc();
+				switch (c) {
+				case '"':
+					goto open_sdquote;
+				case '\'':
+					goto open_sequote;
+				default:
+					goto SubstS;
+				}
 			default:
 				goto Subst;
 			}
@@ -381,8 +398,8 @@ yylex(int cf)
 				}
 				break;
 			case '$':
- subst_dollar:
 				c = getsc();
+ SubstS:
 				if (c == '(') /*)*/ {
 					c = getsc();
 					if (c == '(') /*)*/ {
@@ -394,14 +411,26 @@ yylex(int cf)
 					} else {
 						ungetsc(c);
  subst_command:
-						sp = yyrecursive();
+						c = COMSUB;
+ subst_command2:
+						sp = yyrecursive(c);
 						cz = strlen(sp) + 1;
 						XcheckN(ws, wp, cz);
-						*wp++ = COMSUB;
+						*wp++ = c;
 						memcpy(wp, sp, cz);
 						wp += cz;
 					}
 				} else if (c == '{') /*}*/ {
+					c = getsc();
+					if (ctype(c, C_IFSWS)) {
+						/*
+						 * non-subenvironment
+						 * "command" substitution
+						 */
+						c = FUNSUB;
+						goto subst_command2;
+					}
+					ungetsc(c);
 					*wp++ = OSUBST;
 					*wp++ = '{'; /*}*/
 					wp = get_brace_var(&ws, wp);
@@ -491,20 +520,9 @@ yylex(int cf)
 					*wp++ = '\0';
 					*wp++ = CSUBST;
 					*wp++ = 'X';
-				} else if (c == '\'' && (state == SBASE)) {
-					/* XXX which other states are valid? */
-					*wp++ = OQUOTE;
-					ignore_backslash_newline++;
-					PUSH_STATE(SEQUOTE);
-					statep->ls_bool = false;
-					break;
-				} else if (c == '"' && (state == SBASE)) {
-					/* XXX which other states are valid? */
-					goto DEQUOTE;
 				} else {
 					*wp++ = CHAR;
 					*wp++ = '$';
- DEQUOTE:
 					ungetsc(c);
 				}
 				break;
@@ -682,7 +700,7 @@ yylex(int cf)
 			if (c == '"')
 				goto open_sdquote;
 			else if (c == '$')
-				goto subst_dollar;
+				goto subst_dollar_ex;
 			else if (c == '`')
 				goto subst_gravis;
 			else if (c != /*{*/ '}')
@@ -779,98 +797,60 @@ yylex(int cf)
 				++statep->nparen;
 			goto Sbase2;
 
-		/* <<< delimiter */
-		case SHERESTRING:
-			if (c == '\\') {
-				c = getsc();
-				if (c) {
-					/* trailing \ is lost */
-					*wp++ = QCHAR;
-					*wp++ = c;
-				}
-			} else if (c == '$') {
-				if ((c2 = getsc()) == '\'') {
-					PUSH_STATE(SEQUOTE);
-					statep->ls_bool = false;
-					goto sherestring_quoted;
-				} else if (c2 == '"')
-					goto sherestring_dquoted;
-				ungetsc(c2);
-				goto sherestring_regular;
-			} else if (c == '\'') {
-				PUSH_STATE(SSQUOTE);
- sherestring_quoted:
-				*wp++ = OQUOTE;
-				ignore_backslash_newline++;
-			} else if (c == '"') {
- sherestring_dquoted:
-				state = statep->type = SHEREDQUOTE;
-				*wp++ = OQUOTE;
-				/* just don't IFS split; no quoting mode */
-			} else {
- sherestring_regular:
-				*wp++ = CHAR;
-				*wp++ = c;
-			}
-			break;
-
-		/* <<,<<- delimiter */
+		/* <<, <<-, <<< delimiter */
 		case SHEREDELIM:
-			/*
-			 * XXX chuck this state (and the next) - use
-			 * the existing states ($ and \`...` should be
-			 * stripped of their specialness after the
-			 * fact).
-			 */
 			/*
 			 * here delimiters need a special case since
 			 * $ and `...` are not to be treated specially
 			 */
-			if (c == '\\') {
-				c = getsc();
-				if (c) {
+			switch (c) {
+			case '\\':
+				if ((c = getsc())) {
 					/* trailing \ is lost */
 					*wp++ = QCHAR;
 					*wp++ = c;
 				}
-			} else if (c == '$') {
+				break;
+			case '\'':
+				goto open_ssquote;
+			case '$':
 				if ((c2 = getsc()) == '\'') {
+ open_sequote:
+					*wp++ = OQUOTE;
+					ignore_backslash_newline++;
 					PUSH_STATE(SEQUOTE);
 					statep->ls_bool = false;
-					goto sheredelim_quoted;
-				} else if (c2 == '"')
-					goto sheredelim_dquoted;
+					break;
+				} else if (c2 == '"') {
+					/* FALLTHROUGH */
+			case '"':
+					state = statep->type = SHEREDQUOTE;
+					PUSH_SRETRACE();
+					break;
+				}
 				ungetsc(c2);
-				goto sheredelim_regular;
-			} else if (c == '\'') {
-				PUSH_STATE(SSQUOTE);
- sheredelim_quoted:
-				*wp++ = OQUOTE;
-				ignore_backslash_newline++;
-			} else if (c == '"') {
- sheredelim_dquoted:
-				state = statep->type = SHEREDQUOTE;
-				*wp++ = OQUOTE;
-			} else {
- sheredelim_regular:
+				/* FALLTHROUGH */
+			default:
 				*wp++ = CHAR;
 				*wp++ = c;
 			}
 			break;
 
-		/* " in <<,<<- delimiter */
+		/* " in <<, <<-, <<< delimiter */
 		case SHEREDQUOTE:
-			if (c == '"') {
-				*wp++ = CQUOTE;
-				state = statep->type =
-				    /* dp[1] == '<' means here string */
-				    Xstring(ws, wp)[1] == '<' ?
-				    SHERESTRING : SHEREDELIM;
-			} else {
+			if (c != '"')
+				goto Subst;
+			POP_SRETRACE();
+			dp = strnul(sp) - 1;
+			/* remove the trailing double quote */
+			*dp = '\0';
+			/* store the quoted string */
+			*wp++ = OQUOTE;
+			XcheckN(ws, wp, (dp - sp));
+			dp = sp;
+			while ((c = *dp++)) {
 				if (c == '\\') {
-					switch (c = getsc()) {
-					case 0:
-						/* trailing \ is lost */
+					switch ((c = *dp++)) {
 					case '\\':
 					case '"':
 					case '$':
@@ -885,6 +865,9 @@ yylex(int cf)
 				*wp++ = CHAR;
 				*wp++ = c;
 			}
+			afree(sp, ATEMP);
+			*wp++ = CQUOTE;
+			state = statep->type = SHEREDELIM;
 			break;
 
 		/* in *(...|...) pattern (*+?@!) */
@@ -911,7 +894,7 @@ yylex(int cf)
 		yyerror("no closing quote\n");
 
 	/* This done to avoid tests for SHEREDELIM wherever SBASE tested */
-	if (state == SHEREDELIM || state == SHERESTRING)
+	if (state == SHEREDELIM)
 		state = SBASE;
 
 	dp = Xstring(ws, wp);
@@ -1033,17 +1016,17 @@ yylex(int cf)
 	sp = yylval.cp;
 	dp = ident;
 	if ((cf & HEREDELIM) && (sp[1] == '<'))
-		while (dp < ident+IDENT) {
+		while ((dp - ident) < IDENT) {
 			if ((c = *sp++) == CHAR)
 				*dp++ = *sp++;
 			else if ((c != OQUOTE) && (c != CQUOTE))
 				break;
 		}
 	else
-		while (dp < ident+IDENT && (c = *sp++) == CHAR)
+		while ((dp - ident) < IDENT && (c = *sp++) == CHAR)
 			*dp++ = *sp++;
 	/* Make sure the ident array stays '\0' padded */
-	memset(dp, 0, (ident+IDENT) - dp + 1);
+	memset(dp, 0, (ident + IDENT) - dp + 1);
 	if (c != EOS)
 		/* word is not unquoted */
 		*ident = '\0';
@@ -1170,7 +1153,7 @@ readhere(struct ioword *iop)
 		/* end of here document marker, what to do? */
 		switch (c) {
 		case /*(*/ ')':
-			if (!subshell_nesting_level)
+			if (!subshell_nesting_type)
 				/*-
 				 * not allowed outside $(...) or (...)
 				 * => mismatch
@@ -1282,6 +1265,7 @@ getsc_uu(void)
 			break;
 
 		case SSTRING:
+		case SSTRINGCMDLINE:
 			break;
 
 		case SWORDS:
@@ -1369,7 +1353,7 @@ getsc_line(Source *s)
 {
 	char *xp = Xstring(s->xs, xp), *cp;
 	bool interactive = Flag(FTALKING) && s->type == SSTDIN;
-	int have_tty = interactive && (s->flags & SF_TTY);
+	bool have_tty = tobool(interactive && (s->flags & SF_TTY));
 
 	/* Done here to ensure nothing odd happens when a timeout occurs */
 	XcheckN(s->xs, xp, LINE);
@@ -1382,6 +1366,7 @@ getsc_line(Source *s)
 	}
 	if (interactive)
 		change_winsz();
+#ifndef MKSH_NO_CMDLINE_EDITING
 	if (have_tty && (
 #if !MKSH_S_NOVI
 	    Flag(FVI) ||
@@ -1395,7 +1380,9 @@ getsc_line(Source *s)
 			nread = 0;
 		xp[nread] = '\0';
 		xp += nread;
-	} else {
+	} else
+#endif
+	  {
 		if (interactive)
 			pprompt(prompt, 0);
 		else
@@ -1440,25 +1427,6 @@ getsc_line(Source *s)
 		alarm(0);
 	}
 	cp = Xstring(s->xs, xp);
-#ifndef MKSH_SMALL
-	if (interactive && *cp == '!' && cur_prompt == PS1) {
-		int linelen;
-
-		linelen = Xlength(s->xs, xp);
-		XcheckN(s->xs, xp, Zfc_e_dash + /* NUL */ 1);
-		/* reload after potential realloc */
-		cp = Xstring(s->xs, xp);
-		/* change initial '!' into space */
-		*cp = ' ';
-		/* NUL terminate the current string */
-		*xp = '\0';
-		/* move the actual string forward */
-		memmove(cp + Zfc_e_dash, cp, linelen + /* NUL */ 1);
-		xp += Zfc_e_dash;
-		/* prepend it with "fc -e -" */
-		memcpy(cp, Tfc_e_dash, Zfc_e_dash);
-	}
-#endif
 	s->start = s->str = cp;
 	strip_nuls(Xstring(s->xs, xp), Xlength(s->xs, xp));
 	/* Note: if input is all nulls, this is not eof */
@@ -1514,7 +1482,7 @@ set_prompt(int to, Source *s)
 			ps1 = shf_sclose(shf);
 			saved_atemp = ATEMP;
 			newenv(E_ERRH);
-			if (sigsetjmp(e->jbuf, 0)) {
+			if (kshsetjmp(e->jbuf)) {
 				prompt = safe_prompt;
 				/*
 				 * Don't print an error - assume it has already
@@ -1540,7 +1508,8 @@ set_prompt(int to, Source *s)
 static int
 dopprompt(const char *cp, int ntruncate, bool doprint)
 {
-	int columns = 0, lines = 0, indelimit = 0;
+	int columns = 0, lines = 0;
+	bool indelimit = false;
 	char delimiter = 0;
 
 	/*
@@ -1633,7 +1602,7 @@ get_brace_var(XString *wsp, char *wp)
 
 					c2 = getsc();
 					ungetsc(c2);
-					if (c2 != '}') {
+					if (c2 != /*{*/ '}') {
 						ungetsc(c);
 						goto out;
 					}
@@ -1691,7 +1660,7 @@ arraysub(char **strp)
 	XString ws;
 	char *wp, c;
 	/* we are just past the initial [ */
-	int depth = 1;
+	unsigned int depth = 1;
 
 	Xinit(ws, wp, 32, ATEMP);
 
@@ -1727,10 +1696,10 @@ ungetsc(int c)
 			rp->xp--;
 		rp = rp->next;
 	}
-	ungetsc_(c);
+	ungetsc_i(c);
 }
 static void
-ungetsc_(int c)
+ungetsc_i(int c)
 {
 	if (source->str > source->start)
 		source->str--;
@@ -1768,7 +1737,7 @@ getsc_bn(void)
 			if ((c2 = o_getsc_u()) == '\n')
 				/* ignore the \newline; get the next char... */
 				continue;
-			ungetsc_(c2);
+			ungetsc_i(c2);
 			backslash_skip = 1;
 		}
 		return (c);
@@ -1781,25 +1750,25 @@ yyskiputf8bom(void)
 	int c;
 
 	if ((unsigned char)(c = o_getsc_u()) != 0xEF) {
-		ungetsc_(c);
+		ungetsc_i(c);
 		return;
 	}
 	if ((unsigned char)(c = o_getsc_u()) != 0xBB) {
-		ungetsc_(c);
-		ungetsc_(0xEF);
+		ungetsc_i(c);
+		ungetsc_i(0xEF);
 		return;
 	}
 	if ((unsigned char)(c = o_getsc_u()) != 0xBF) {
-		ungetsc_(c);
-		ungetsc_(0xBB);
-		ungetsc_(0xEF);
+		ungetsc_i(c);
+		ungetsc_i(0xBB);
+		ungetsc_i(0xEF);
 		return;
 	}
 	UTFMODE |= 8;
 }
 
 static Lex_state *
-push_state_(State_info *si, Lex_state *old_end)
+push_state_i(State_info *si, Lex_state *old_end)
 {
 	Lex_state *news = alloc2(STATE_BSIZE, sizeof(Lex_state), ATEMP);
 
@@ -1810,7 +1779,7 @@ push_state_(State_info *si, Lex_state *old_end)
 }
 
 static Lex_state *
-pop_state_(State_info *si, Lex_state *old_end)
+pop_state_i(State_info *si, Lex_state *old_end)
 {
 	Lex_state *old_base = si->base;
 
