@@ -36,7 +36,7 @@ LOCAL_C_INCLUDES:=	$(LOCAL_PATH)/src
 # additional flags first, then from Makefrag.inc: CFLAGS, CPPFLAGS
 LOCAL_CFLAGS:=		-DMKSHRC_PATH=\"/system/etc/mkshrc\" \
 			-DMKSH_DEFAULT_EXECSHELL=\"/system/bin/sh\" \
-			-DMKSH_DEFAULT_TMPDIR=\"/data/local/tmp\" \
+			-DMKSH_DEFAULT_TMPDIR=\"/data/local\" \
 		-fno-asynchronous-unwind-tables -fwrapv \
 		-DDEBUG_LEAKS -DMKSH_ASSUME_UTF8 -DMKSH_CONSERVATIVE_FDS \
 		-DMKSH_DONT_EMIT_IDSTRING -DMKSH_NOPWNAM -DMKSH_BUILDSH \

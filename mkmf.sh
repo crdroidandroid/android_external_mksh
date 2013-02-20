@@ -149,7 +149,7 @@ addvar LIBS \
 if test $mkmfmode = 1; then
 	addvar CPPFLAGS '-DMKSHRC_PATH=\"/system/etc/mkshrc\"'
 	addvar CPPFLAGS '-DMKSH_DEFAULT_EXECSHELL=\"/system/bin/sh\"'
-	addvar CPPFLAGS '-DMKSH_DEFAULT_TMPDIR=\"/data/local/tmp\"'
+	addvar CPPFLAGS '-DMKSH_DEFAULT_TMPDIR=\"/data/local\"'
 fi
 
 ### Override flags
