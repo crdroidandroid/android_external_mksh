@@ -64,7 +64,6 @@ addvar CPPFLAGS \
     -isystem $aospdir/frameworks/native/opengl/include \
     -isystem $aospdir/frameworks/av/include \
     -isystem $aospdir/frameworks/base/include \
-    -isystem $aospdir/frameworks/base/opengl/include \
     -isystem $aospdir/external/skia/include \
     -isystem $aospdir/out/target/product/generic/obj/include \
     -isystem $aospdir/bionic/libc/arch-arm/include \
@@ -75,11 +74,10 @@ addvar CPPFLAGS \
     -isystem $aospdir/bionic/libm/include \
     -isystem $aospdir/bionic/libm/include/arm \
     -isystem $aospdir/bionic/libthread_db/include \
-    -D_FORTIFY_SOURCE=1 \
+    -D_FORTIFY_SOURCE=2 \
     -include $aospdir/build/core/combo/include/arch/linux-arm/AndroidConfig.h \
     -I$aospdir/build/core/combo/include/arch/linux-arm/ \
     -DANDROID -DNDEBUG -UDEBUG
-# who would have thought the AOSP devs are funny? -fno-builtin-sin
 addvar CFLAGS \
     -fno-exceptions \
     -Wno-multichar \
@@ -123,6 +121,7 @@ addvar CFLAGS \
 addvar LDFLAGS \
     -nostdlib \
     -Bdynamic \
+    -fPIE \
     -pie \
     -Wl,-dynamic-linker,/system/bin/linker \
     -Wl,--gc-sections \
@@ -131,6 +130,7 @@ addvar LDFLAGS \
     -Wl,-z,relro \
     -Wl,-z,now \
     -Wl,--warn-shared-textrel \
+    -Wl,--fatal-warnings \
     -Wl,--icf=safe \
     -Wl,--fix-cortex-a8 \
     -Wl,--no-undefined \
@@ -138,9 +138,9 @@ addvar LDFLAGS \
 addvar LIBS \
     -L$aospdir/out/target/product/generic/obj/lib \
     -Wl,-rpath-link=$aospdir/out/target/product/generic/obj/lib \
-    -lc \
     -Wl,--no-whole-archive \
-    $aospdir/out/target/product/generic/obj/STATIC_LIBRARIES/libcompiler-rt-extras_intermediates/libcompiler-rt-extras.a \
+    $aospdir/out/target/product/generic/obj/STATIC_LIBRARIES/libcompiler_rt-extras_intermediates/libcompiler_rt-extras.a \
+    -lc \
     $aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/../lib/gcc/arm-linux-androideabi/4.7/armv7-a/libgcc.a \
     $aospdir/out/target/product/generic/obj/lib/crtend_android.o
 
@@ -180,11 +180,6 @@ export HAVE_CAN_FNOSTRICTALIASING HAVE_CAN_FSTACKPROTECTORALL HAVE_CAN_WALL
 
 # even the idea of persistent history on a phone is funny
 HAVE_PERSISTENT_HISTORY=0; export HAVE_PERSISTENT_HISTORY
-
-# this is a run-time check and dependent on the target CPU
-# architecture (at _least_!) and cannot be auto-detected,
-# so always include the safety check even if unnecessary
-HAVE_SILENT_IDIVWRAPV=0; export HAVE_SILENT_IDIVWRAPV
 
 # ... and run it!
 export CC CPPFLAGS CFLAGS LDFLAGS LIBS TARGET_OS
