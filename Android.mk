@@ -10,19 +10,17 @@ LOCAL_PATH:=		$(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE:=		mkshrc
-LOCAL_MODULE_TAGS:=	shell_mksh
 LOCAL_MODULE_CLASS:=	ETC
 LOCAL_MODULE_PATH:=	$(TARGET_OUT)/etc
 LOCAL_SRC_FILES:=	$(LOCAL_MODULE)
 include $(BUILD_PREBUILT)
 
 
-# /system/bin/mksh
+# /system/bin/sh
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE:=		mksh
-LOCAL_MODULE_TAGS:=	shell_mksh
+LOCAL_MODULE:=		sh
 
 # mksh source files
 LOCAL_SRC_FILES:=	src/lalloc.c src/edit.c src/eval.c src/exec.c \
