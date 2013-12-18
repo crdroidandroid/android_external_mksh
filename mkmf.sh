@@ -69,8 +69,8 @@ addvar CPPFLAGS \
     -isystem $aospdir/bionic/libc/arch-arm/include \
     -isystem $aospdir/bionic/libc/include \
     -isystem $aospdir/bionic/libstdc++/include \
-    -isystem $aospdir/bionic/libc/kernel/common \
-    -isystem $aospdir/bionic/libc/kernel/arch-arm \
+    -isystem $aospdir/bionic/libc/kernel/uapi \
+    -isystem $aospdir/bionic/libc/kernel/uapi/asm-arm \
     -isystem $aospdir/bionic/libm/include \
     -isystem $aospdir/bionic/libm/include/arm \
     -isystem $aospdir/bionic/libthread_db/include \
