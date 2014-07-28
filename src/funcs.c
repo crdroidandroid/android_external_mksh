@@ -3761,12 +3761,14 @@ c_cat(const char **wp)
 				break;
 			while (n) {
 				w = write(STDOUT_FILENO, cp, n);
+				eno = errno;
+				/* give the user a chance to ^C out */
+				intrcheck();
 				if (w == -1) {
-					if (errno == EINTR)
+					if (eno == EINTR)
 						/* interrupted, try again */
 						continue;
 					/* an error occured during writing */
-					eno = errno;
 					bi_errorf("%s: %s", "<stdout>",
 					    cstrerror(eno));
 					rv = 1;
