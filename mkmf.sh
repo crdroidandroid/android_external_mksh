@@ -49,10 +49,10 @@ LIBS=
 # possible to the values used later. (You also must example the
 # results gathered from Makefrag.inc to see they are the same
 # across all Android platforms, or add appropriate ifdefs.)
-# Since we no longer use the NDK, the AOSP has to have been
-# built before using this script (targetting generic/emulator).
+# Since we no longer use the NDK, AOSP has to have been
+# built before using this script.
 
-CC=$aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-gcc
+CC=$aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.8/bin/arm-linux-androideabi-gcc
 addvar CPPFLAGS \
     -I$aospdir/libnativehelper/include/nativehelper \
     -isystem $aospdir/system/core/include \
@@ -65,7 +65,7 @@ addvar CPPFLAGS \
     -isystem $aospdir/frameworks/av/include \
     -isystem $aospdir/frameworks/base/include \
     -isystem $aospdir/external/skia/include \
-    -isystem $aospdir/out/target/product/generic/obj/include \
+    -isystem $ANDROID_PRODUCT_OUT/obj/include \
     -isystem $aospdir/bionic/libc/arch-arm/include \
     -isystem $aospdir/bionic/libc/include \
     -isystem $aospdir/bionic/libstdc++/include \
@@ -134,15 +134,15 @@ addvar LDFLAGS \
     -Wl,--icf=safe \
     -Wl,--fix-cortex-a8 \
     -Wl,--no-undefined \
-    $aospdir/out/target/product/generic/obj/lib/crtbegin_dynamic.o
+    $ANDROID_PRODUCT_OUT/obj/lib/crtbegin_dynamic.o
 addvar LIBS \
-    -L$aospdir/out/target/product/generic/obj/lib \
-    -Wl,-rpath-link=$aospdir/out/target/product/generic/obj/lib \
+    -L$ANDROID_PRODUCT_OUT/obj/lib \
+    -Wl,-rpath-link=$ANDROID_PRODUCT_OUT/obj/lib \
     -Wl,--no-whole-archive \
-    $aospdir/out/target/product/generic/obj/STATIC_LIBRARIES/libcompiler_rt-extras_intermediates/libcompiler_rt-extras.a \
+    $ANDROID_PRODUCT_OUT/obj/STATIC_LIBRARIES/libcompiler_rt-extras_intermediates/libcompiler_rt-extras.a \
     -lc \
-    $aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/../lib/gcc/arm-linux-androideabi/4.7/armv7-a/libgcc.a \
-    $aospdir/out/target/product/generic/obj/lib/crtend_android.o
+    $aospdir/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.8/bin/../lib/gcc/arm-linux-androideabi/4.8/armv7-a/libgcc.a \
+    $ANDROID_PRODUCT_OUT/obj/lib/crtend_android.o
 
 
 ### Flags used by test builds
