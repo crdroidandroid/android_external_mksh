@@ -6,8 +6,16 @@
 #
 # Support: https://launchpad.net/mksh
 
-: ${TERM:=xterm} ${HOME:=/data} ${MKSH:=/system/bin/sh} ${HOSTNAME:=$(getprop ro.product.device)}
-: ${SHELL:=$MKSH} ${USER:=$(typeset x=$(id); x=${x#*\(}; print -r -- ${x%%\)*})} ${HOSTNAME:=android}
+: ${HOME:=/data}
+: ${HOSTNAME:=$(getprop ro.product.device)}
+: ${HOSTNAME:=android}
+: ${MKSH:=/system/bin/sh}
+: ${SHELL:=$MKSH}
+: ${TERM:=xterm}
+: ${TMPDIR:=/data/local/tmp}
+: ${USER:=$(id -un)}
+export HOME HOSTNAME MKSH SHELL TERM TMPDIR USER
+
 if (( USER_ID )); then PS1='$'; else PS1='#'; fi
 PS4='[$EPOCHREALTIME] '; PS1='${|
 	local e=$?
@@ -16,7 +24,6 @@ PS4='[$EPOCHREALTIME] '; PS1='${|
 
 	return $e
 }$USER@$HOSTNAME:${PWD:-?} '"$PS1 "
-export HOME HOSTNAME MKSH SHELL TERM USER
 
 function hd {
 	local -Uui16 -Z11 pos=0
