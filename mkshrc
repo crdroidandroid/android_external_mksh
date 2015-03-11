@@ -31,7 +31,7 @@ function hd {
 	local dasc line i
 
 	cat "$@" | { set +U; if read -arN -1 line; then
-		typeset -i1 line
+		typeset -i1 'line[*]'
 		i=0
 		while (( i < ${#line[*]} )); do
 			hv=${line[i++]}
@@ -60,7 +60,7 @@ function setenv {
 	eval export "\"$1\""'="$2"'
 }
 
-for p in ~/.bin; do
+for p in ~/bin; do
 	[[ -d $p/. ]] || continue
 	[[ :$PATH: = *:$p:* ]] || PATH=$p:$PATH
 done
