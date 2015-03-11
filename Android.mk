@@ -45,7 +45,7 @@ LOCAL_CFLAGS += \
     -Wno-deprecated-declarations \
     -fno-asynchronous-unwind-tables \
     -fno-strict-aliasing \
-    -fstack-protector-strong -fwrapv \
+    -fstack-protector -fwrapv \
 
 # ...and CPPFLAGS.
 LOCAL_CFLAGS += \
