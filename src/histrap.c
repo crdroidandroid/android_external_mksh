@@ -27,7 +27,7 @@
 #include <sys/file.h>
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/histrap.c,v 1.134.2.3 2015/03/01 15:43:00 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/histrap.c,v 1.134.2.5 2015/04/19 19:18:18 tg Exp $");
 
 Trap sigtraps[NSIG + 1];
 static struct sigaction Sigact_ign;
@@ -275,8 +275,9 @@ c_fc(const char **wp)
 		for (hp = rflag ? hlast : hfirst;
 		    hp >= hfirst && hp <= hlast; hp += rflag ? -1 : 1) {
 			if (!nflag)
-				shf_fprintf(shl_stdout, "%d",
-				    hist_source->line - (int)(histptr - hp));
+				shf_fprintf(shl_stdout, "%lu",
+				    (unsigned long)hist_source->line -
+				    (unsigned long)(histptr - hp));
 			shf_putc('\t', shl_stdout);
 			/* print multi-line commands correctly */
 			s = *hp;
@@ -563,7 +564,7 @@ sethistfile(const char *name)
 		return;
 
 	/* if the name is the same as the name we have */
-	if (hname && strcmp(hname, name) == 0)
+	if (hname && name && !strcmp(hname, name))
 		return;
 
 	/*
@@ -581,7 +582,8 @@ sethistfile(const char *name)
 		hist_source->line = 0;
 	}
 
-	hist_init(hist_source);
+	if (name)
+		hist_init(hist_source);
 }
 #endif
 
@@ -712,8 +714,10 @@ hist_init(Source *s)
 	hist_source = s;
 
 #if HAVE_PERSISTENT_HISTORY
-	if ((hname = str_val(global("HISTFILE"))) == NULL)
+	if (((hname = str_val(global("HISTFILE"))) == NULL) || !*hname) {
+		hname = NULL;
 		return;
+	}
 	strdupx(hname, hname, APERM);
 	hs = hist_init_first;
 

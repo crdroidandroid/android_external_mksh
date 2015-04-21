@@ -1,4 +1,4 @@
-# $MirOS: src/bin/mksh/check.t,v 1.667.2.3 2015/03/01 15:42:51 tg Exp $
+# $MirOS: src/bin/mksh/check.t,v 1.667.2.7 2015/04/19 19:18:10 tg Exp $
 # -*- mode: sh -*-
 #-
 # Copyright © 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
@@ -30,7 +30,7 @@
 # (2013/12/02 20:39:44) http://openbsd.cs.toronto.edu/cgi-bin/cvsweb/src/regress/bin/ksh/?sortby=date
 
 expected-stdout:
-	@(#)MIRBSD KSH R50 2015/03/01
+	@(#)MIRBSD KSH R50 2015/04/19
 description:
 	Check version of shell.
 stdin:
@@ -39,7 +39,7 @@ name: KSH_VERSION
 category: shell:legacy-no
 ---
 expected-stdout:
-	@(#)LEGACY KSH R50 2015/03/01
+	@(#)LEGACY KSH R50 2015/04/19
 description:
 	Check version of legacy shell.
 stdin:
@@ -256,6 +256,19 @@ stdin:
 	echo $(bar)
 expected-stdout:
 	hello world
+---
+name: alias-11
+description:
+	Check that special argument handling still applies with escaped aliases
+stdin:
+	alias local='\typeset'
+	function foo {
+		local x=$1 y=z
+		print -r -- "$x,$y"
+	}
+	foo 'bar - baz'
+expected-stdout:
+	bar - baz,z
 ---
 name: arith-lazy-1
 description:
@@ -4832,6 +4845,66 @@ expected-stdout:
 	1a:
 	2: x[A B]
 ---
+name: read-IFS-2
+description:
+	Complex tests, IFS either colon (IFS-NWS) or backslash (tricky)
+stdin:
+	n=0
+	showargs() { print -nr "$1"; shift; for s_arg in "$@"; do print -nr -- " [$s_arg]"; done; print; }
+	(IFS=\\ a=\<\\\>; showargs 3 $a)
+	(IFS=: b=\<:\>; showargs 4 $b)
+	print -r '<\>' | (IFS=\\ read f g; showargs 5 "$f" "$g")
+	print -r '<\\>' | (IFS=\\ read f g; showargs 6 "$f" "$g")
+	print '<\\\n>' | (IFS=\\ read f g; showargs 7 "$f" "$g")
+	print -r '<\>' | (IFS=\\ read f; showargs 8 "$f")
+	print -r '<\\>' | (IFS=\\ read f; showargs 9 "$f")
+	print '<\\\n>' | (IFS=\\ read f; showargs 10 "$f")
+	print -r '<\>' | (IFS=\\ read -r f g; showargs 11 "$f" "$g")
+	print -r '<\\>' | (IFS=\\ read -r f g; showargs 12 "$f" "$g")
+	print '<\\\n>' | (IFS=\\ read -r f g; showargs 13 "$f" "$g")
+	print -r '<\>' | (IFS=\\ read -r f; showargs 14 "$f")
+	print -r '<\\>' | (IFS=\\ read -r f; showargs 15 "$f")
+	print '<\\\n>' | (IFS=\\ read -r f; showargs 16 "$f")
+	print -r '<:>' | (IFS=: read f g; showargs 17 "$f" "$g")
+	print -r '<::>' | (IFS=: read f g; showargs 18 "$f" "$g")
+	print '<:\n>' | (IFS=: read f g; showargs 19 "$f" "$g")
+	print -r '<:>' | (IFS=: read f; showargs 20 "$f")
+	print -r '<::>' | (IFS=: read f; showargs 21 "$f")
+	print '<:\n>' | (IFS=: read f; showargs 22 "$f")
+	print -r '<:>' | (IFS=: read -r f g; showargs 23 "$f" "$g")
+	print -r '<::>' | (IFS=: read -r f g; showargs 24 "$f" "$g")
+	print '<:\n>' | (IFS=: read -r f g; showargs 25 "$f" "$g")
+	print -r '<:>' | (IFS=: read -r f; showargs 26 "$f")
+	print -r '<::>' | (IFS=: read -r f; showargs 27 "$f")
+	print '<:\n>' | (IFS=: read -r f; showargs 28 "$f")
+expected-stdout:
+	3 [<] [>]
+	4 [<] [>]
+	5 [<] [>]
+	6 [<] [>]
+	7 [<>] []
+	8 [<>]
+	9 [<\>]
+	10 [<>]
+	11 [<] [>]
+	12 [<] [\>]
+	13 [<] []
+	14 [<\>]
+	15 [<\\>]
+	16 [<]
+	17 [<] [>]
+	18 [<] [:>]
+	19 [<] []
+	20 [<:>]
+	21 [<::>]
+	22 [<]
+	23 [<] [>]
+	24 [<] [:>]
+	25 [<] []
+	26 [<:>]
+	27 [<::>]
+	28 [<]
+---
 name: read-ksh-1
 description:
 	If no var specified, REPLY is used
@@ -8517,6 +8590,50 @@ expected-stdout:
 	{220->> Bitte keine Werbung einwerfen! <<}
 	{220 Who do you wanna pretend to be today?}
 ---
+name: print-crlf
+description:
+	Check that CR+LF is shown and read as-is
+stdin:
+	cat >foo <<-'EOF'
+		x='bar
+		' #
+		if test x"$KSH_VERSION" = x""; then #
+			printf '<%s>' "$x" #
+		else #
+			print -nr -- "<$x>" #
+		fi #
+	EOF
+	echo "[$("$__progname" foo)]"
+	"$__progname" foo | while IFS= read -r line; do
+		print -r -- "{$line}"
+	done
+expected-stdout:
+	[<bar
+	>]
+	{<bar}
+---
+name: print-lf
+description:
+	Check that LF-only is shown and read as-is
+stdin:
+	cat >foo <<-'EOF'
+		x='bar
+		' #
+		if test x"$KSH_VERSION" = x""; then #
+			printf '<%s>' "$x" #
+		else #
+			print -nr -- "<$x>" #
+		fi #
+	EOF
+	echo "[$("$__progname" foo)]"
+	"$__progname" foo | while IFS= read -r line; do
+		print -r -- "{$line}"
+	done
+expected-stdout:
+	[<bar
+	>]
+	{<bar}
+---
 name: print-nul-chars
 description:
 	Check handling of NUL characters for print and COMSUB
@@ -8713,28 +8830,46 @@ expected-exit: e != 0
 expected-stderr-pattern:
 	/\.: missing argument.*\n.*\.: missing argument/
 ---
-name: alias-function-no-conflict
+name: alias-function-no-conflict-legacy
 description:
-	make aliases not conflict with functions
-	note: for ksh-like functions, the order of preference is
-	different; bash outputs baz instead of bar in line 2 below
+	make aliases not conflict with functions, legacy version:
+	undefine these aliases upon definition of the function
+	note: for ksh functions, the order of preference differs in GNU bash
 stdin:
+	# POSIX function overrides and removes alias
 	alias foo='echo bar'
+	foo
 	foo() {
 		echo baz
 	}
+	foo
+	unset -f foo
+	foo 2>/dev/null || echo rab
+	# alias overrides ksh function
 	alias korn='echo bar'
+	korn
 	function korn {
 		echo baz
 	}
-	foo
 	korn
-	unset -f foo
-	foo 2>/dev/null || echo rab
+	# alias temporarily overrides POSIX function
+	bla() {
+		echo bfn
+	}
+	bla
+	alias bla='echo bal'
+	bla
+	unalias bla
+	bla
 expected-stdout:
-	baz
 	bar
+	baz
 	rab
+	bar
+	bar
+	bfn
+	bal
+	bfn
 ---
 name: bash-function-parens
 description:
@@ -8746,12 +8881,13 @@ stdin:
 		echo "$1 {"
 		echo '	echo "bar='\''$0'\'\"
 		echo '}'
-		echo ${2:-foo}
+		print -r -- "${2:-foo}"
 	}
 	mk 'function foo' >f-korn
 	mk 'foo ()' >f-dash
 	mk 'function foo ()' >f-bash
-	mk 'function stop ()' stop >f-stop
+	# pre-R51 can do without a backslash in front of the second stop
+	mk 'function stop ()' 'stop' >f-stop
 	print '#!'"$__progname"'\nprint -r -- "${0%/f-argh}"' >f-argh
 	chmod +x f-*
 	u=$(./f-argh)
@@ -9770,25 +9906,33 @@ description:
 	Verify that file descriptors > 2 are private for Korn shells
 	AT&T ksh93 does this still, which means we must keep it as well
 category: shell:legacy-no
-file-setup: file 644 "test.sh"
-	echo >&3 Fowl
 stdin:
-	exec 3>&1
-	"$__progname" test.sh
+	cat >cld <<-EOF
+		#!$__perlname
+		open(my \$fh, ">&", 9) or die "E: open \$!";
+		syswrite(\$fh, "Fowl\\n", 5) or die "E: write \$!";
+	EOF
+	chmod +x cld
+	exec 9>&1
+	./cld
 expected-exit: e != 0
 expected-stderr-pattern:
-	/bad file descriptor/
+	/E: open /
 ---
 name: fd-cloexec-2
 description:
 	Verify that file descriptors > 2 are not private for POSIX shells
 	See Debian Bug #154540, Closes: #499139
-file-setup: file 644 "test.sh"
-	echo >&3 Fowl
 stdin:
-	test -n "$POSH_VERSION" || set -o sh
-	exec 3>&1
-	"$__progname" test.sh
+	cat >cld <<-EOF
+		#!$__perlname
+		open(my \$fh, ">&", 9) or die "E: open \$!";
+		syswrite(\$fh, "Fowl\\n", 5) or die "E: write \$!";
+	EOF
+	chmod +x cld
+	test -n "$POSH_VERSION" || set -o posix
+	exec 9>&1
+	./cld
 expected-stdout:
 	Fowl
 ---
@@ -9796,11 +9940,15 @@ name: fd-cloexec-3
 description:
 	Verify that file descriptors > 2 are not private for LEGACY KSH
 category: shell:legacy-yes
-file-setup: file 644 "test.sh"
-	echo >&3 Fowl
 stdin:
-	exec 3>&1
-	"$__progname" test.sh
+	cat >cld <<-EOF
+		#!$__perlname
+		open(my \$fh, ">&", 9) or die "E: open \$!";
+		syswrite(\$fh, "Fowl\\n", 5) or die "E: write \$!";
+	EOF
+	chmod +x cld
+	exec 9>&1
+	./cld
 expected-stdout:
 	Fowl
 ---
@@ -11955,4 +12103,42 @@ expected-stdout:
 expected-stderr:
 	[(p:sh)(f1:sh)(f2:sh)] print '(o1:shx)'
 	[(p:sh)(f1:sh)(f2:sh)] set +x
+---
+name: fksh-flags-legacy
+description:
+	Check that even FKSH functions share the shell flags
+stdin:
+	[[ $KSH_VERSION = Version* ]] && set +B
+	foo() {
+		set +f
+		set -e
+		echo 2 "${-/s}" .
+	}
+	set -fh
+	echo 1 "${-/s}" .
+	foo
+	echo 3 "${-/s}" .
+expected-stdout:
+	1 fh .
+	2 eh .
+	3 eh .
+---
+name: fsh-flags
+description:
+	Check that !FKSH functions share the shell flags
+stdin:
+	[[ $KSH_VERSION = Version* ]] && set +B
+	foo() {
+		set +f
+		set -e
+		echo 2 "${-/s}" .
+	}
+	set -fh
+	echo 1 "${-/s}" .
+	foo
+	echo 3 "${-/s}" .
+expected-stdout:
+	1 fh .
+	2 eh .
+	3 eh .
 ---
