@@ -38,7 +38,7 @@
 #endif
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/funcs.c,v 1.259.2.2 2015/01/25 15:35:44 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/funcs.c,v 1.259.2.5 2015/04/19 19:18:16 tg Exp $");
 
 #if HAVE_KILLPG
 /*
@@ -778,7 +778,7 @@ c_typeset(const char **wp)
 
 	if (fieldstr && !bi_getn(fieldstr, &field))
 		return (1);
-	if (basestr && (!bi_getn(basestr, &base) || base < 1 || base > 36)) {
+	if (basestr && (!getn(basestr, &base) || base < 1 || base > 36)) {
 		bi_errorf("%s: %s", "bad integer base", basestr);
 		return (1);
 	}
@@ -1817,9 +1817,10 @@ int
 c_read(const char **wp)
 {
 #define is_ifsws(c) (ctype((c), C_IFS) && ctype((c), C_IFSWS))
-	int c, fd = 0, rv = 0, lastparm = 0;
+	int c, fd = 0, rv = 0;
 	bool savehist = false, intoarray = false, aschars = false;
 	bool rawmode = false, expanding = false;
+	bool lastparmmode = false, lastparmused = false;
 	enum { LINES, BYTES, UPTO, READALL } readmode = LINES;
 	char delim = '\n';
 	size_t bytesleft = 128, bytesread;
@@ -1855,7 +1856,7 @@ c_read(const char **wp)
 		if (!bi_getn(builtin_opt.optarg, &c))
 			return (2);
 		if (c == -1) {
-			readmode = READALL;
+			readmode = readmode == BYTES ? READALL : UPTO;
 			bytesleft = 1024;
 		} else
 			bytesleft = (unsigned int)c;
@@ -2123,7 +2124,7 @@ c_read(const char **wp)
 	}
 
 	if (!intoarray && wp[1] == NULL)
-		lastparm = 1;
+		lastparmmode = true;
 
  c_read_splitlast:
 	/* copy until IFS character */
@@ -2148,16 +2149,23 @@ c_read(const char **wp)
 	}
 	xsave = Xsavepos(xs, xp);
 	/* copy word delimiter: IFSWS+IFS,IFSWS */
+	expanding = false;
 	while (bytesread) {
 		char ch;
 
 		ch = *ccp;
 		if (!ctype(ch, C_IFS))
 			break;
-		Xcheck(xs, xp);
-		Xput(xs, xp, ch);
+		if (lastparmmode && !expanding && !rawmode && ch == '\\') {
+			expanding = true;
+		} else {
+			Xcheck(xs, xp);
+			Xput(xs, xp, ch);
+		}
 		++ccp;
 		--bytesread;
+		if (expanding)
+			continue;
 		if (!ctype(ch, C_IFSWS))
 			break;
 	}
@@ -2168,12 +2176,12 @@ c_read(const char **wp)
 		--bytesread;
 	}
 	/* if no more parameters, rinse and repeat */
-	if (lastparm && bytesread) {
-		++lastparm;
+	if (lastparmmode && bytesread) {
+		lastparmused = true;
 		goto c_read_splitlast;
 	}
 	/* get rid of the delimiter unless we pack the rest */
-	if (lastparm < 2)
+	if (!lastparmused)
 		xp = Xrestpos(xs, xp, xsave);
  c_read_gotword:
 	Xput(xs, xp, '\0');
@@ -2321,13 +2329,9 @@ c_exitreturn(const char **wp)
 		goto c_exitreturn_err;
 	arg = wp[builtin_opt.optind];
 
-	if (arg) {
-		if (!getn(arg, &n)) {
-			exstat = 1;
-			warningf(true, "%s: %s", arg, "bad number");
-		} else
-			exstat = n & 0xFF;
-	} else if (trap_exstat != -1)
+	if (arg)
+		exstat = bi_getn(arg, &n) ? (n & 0xFF) : 1;
+	else if (trap_exstat != -1)
 		exstat = trap_exstat;
 	if (wp[0][0] == 'r') {
 		/* return */
