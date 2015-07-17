@@ -23,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/eval.c,v 1.158.2.5 2015/04/12 22:32:24 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/eval.c,v 1.170 2015/07/06 17:45:33 tg Exp $");
 
 /*
  * string expansion
@@ -291,21 +291,14 @@ expand(
 				c = *sp++;
 				break;
 			case OQUOTE:
-				switch (word) {
-				case IFS_QUOTE:
-					/* """something */
-					word = IFS_WORD;
-					break;
-				case IFS_WORD:
-					break;
-				default:
+				if (word != IFS_WORD)
 					word = IFS_QUOTE;
-					break;
-				}
 				tilde_ok = 0;
 				quote = 1;
 				continue;
 			case CQUOTE:
+				if (word == IFS_QUOTE)
+					word = IFS_WORD;
 				quote = st->quotew;
 				continue;
 			case COMSUB:
@@ -528,43 +521,27 @@ expand(
 						afree(tpat0, ATEMP);
 
 						/* check for special cases */
-						d = str_val(st->var);
 						switch (*pat) {
 						case '#':
-							/* anchor at begin */
-							tpat0 = pat + 1;
-							tpat1 = rrep;
-							tpat2 = d;
-							break;
 						case '%':
-							/* anchor at end */
 							tpat0 = pat + 1;
-							tpat1 = d;
-							tpat2 = rrep;
 							break;
 						case '\0':
-							/* empty pattern */
+							/* empty pattern, reject */
 							goto no_repl;
 						default:
 							tpat0 = pat;
-							/* silence gcc */
-							tpat1 = tpat2 = NULL;
 						}
 						if (gmatchx(null, tpat0, false)) {
 							/*
-							 * pattern matches
-							 * the empty string
+							 * pattern matches empty
+							 * string => don't loop
 							 */
-							if (tpat0 == pat)
-								goto no_repl;
-							/* but is anchored */
-							s = shf_smprintf("%s%s",
-							    tpat1, tpat2);
-							goto do_repl;
+							stype &= ~0x80;
 						}
 
 						/* prepare string on which to work */
-						strdupx(s, d, ATEMP);
+						strdupx(s, str_val(st->var), ATEMP);
 						sbeg = s;
 
 						/* first see if we have any match at all */
@@ -622,7 +599,6 @@ expand(
 							goto again_repl;
  end_repl:
 						afree(tpat1, ATEMP);
- do_repl:
 						x.str = s;
  no_repl:
 						afree(pat, ATEMP);
@@ -1734,7 +1710,7 @@ do_tilde(char *cp)
 		dp = str_val(global("HOME"));
 	else if (cp[0] == '+' && cp[1] == '\0')
 		dp = str_val(global("PWD"));
-	else if (cp[0] == '-' && cp[1] == '\0')
+	else if (ksh_isdash(cp))
 		dp = str_val(global("OLDPWD"));
 #ifndef MKSH_NOPWNAM
 	else

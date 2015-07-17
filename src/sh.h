@@ -64,6 +64,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#if HAVE_IO_H
+#include <io.h>
+#endif
 #if HAVE_LIBGEN_H
 #include <libgen.h>
 #endif
@@ -169,9 +172,9 @@
 #endif
 
 #ifdef EXTERN
-__RCSID("$MirOS: src/bin/mksh/sh.h,v 1.701.2.7 2015/04/19 19:18:21 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/sh.h,v 1.739 2015/07/10 19:36:37 tg Exp $");
 #endif
-#define MKSH_VERSION "R50 2015/04/19"
+#define MKSH_VERSION "R51 2015/07/10"
 
 /* arithmetic types: C implementation */
 #if !HAVE_CAN_INTTYPES
@@ -253,7 +256,8 @@ typedef MKSH_TYPEDEF_SSIZE_T ssize_t;
 
 /* extra types */
 
-#if !HAVE_GETRUSAGE
+/* getrusage does not exist on OS/2 kLIBC */
+#if !HAVE_GETRUSAGE && !defined(__OS2__)
 #undef rusage
 #undef RUSAGE_SELF
 #undef RUSAGE_CHILDREN
@@ -298,16 +302,6 @@ struct rusage {
 	} while (/* CONSTCOND */ 0)
 #endif
 
-#define ksh_isdigit(c)	(((c) >= '0') && ((c) <= '9'))
-#define ksh_islower(c)	(((c) >= 'a') && ((c) <= 'z'))
-#define ksh_isupper(c)	(((c) >= 'A') && ((c) <= 'Z'))
-#define ksh_tolower(c)	(((c) >= 'A') && ((c) <= 'Z') ? (c) - 'A' + 'a' : (c))
-#define ksh_toupper(c)	(((c) >= 'a') && ((c) <= 'z') ? (c) - 'a' + 'A' : (c))
-#define ksh_isdash(s)	(((s)[0] == '-') && ((s)[1] == '\0'))
-#define ksh_isspace(c)	((((c) >= 0x09) && ((c) <= 0x0D)) || ((c) == 0x20))
-#define ksh_min(x,y)	((x) < (y) ? (x) : (y))
-#define ksh_max(x,y)	((x) > (y) ? (x) : (y))
-
 #ifdef MKSH__NO_PATH_MAX
 #undef PATH_MAX
 #else
@@ -339,28 +333,68 @@ struct rusage {
 #define DEFFILEMODE	(S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH)
 #endif
 
-#ifndef NSIG
-#if defined(_NSIG)
-#define NSIG		_NSIG
+
+/* determine ksh_NSIG: first, use the traditional definitions */
+#undef ksh_NSIG
+#if defined(NSIG)
+#define ksh_NSIG NSIG
+#elif defined(_NSIG)
+#define ksh_NSIG _NSIG
 #elif defined(SIGMAX)
-#define NSIG		(SIGMAX+1)
+#define ksh_NSIG (SIGMAX + 1)
 #elif defined(_SIGMAX)
-#define NSIG		(_SIGMAX+1)
+#define ksh_NSIG (_SIGMAX + 1)
+#elif defined(NSIG_MAX)
+#define ksh_NSIG NSIG_MAX
 #else
 # error Please have your platform define NSIG.
-#define NSIG		64
 #endif
-#endif
-
-/* get rid of this (and awk/printf(1) in Build.sh) later */
-#if (NSIG < 1)
+/* range-check them */
+#if (ksh_NSIG < 1)
 # error Your NSIG value is not positive.
-#unset NSIG
-#define NSIG		64
+#undef ksh_NSIG
+#endif
+/* second, see if the new POSIX definition is available */
+#ifdef NSIG_MAX
+#if (NSIG_MAX < 2)
+/* and usable */
+# error Your NSIG_MAX value is too small.
+#undef NSIG_MAX
+#elif (ksh_NSIG > NSIG_MAX)
+/* and realistic */
+# error Your NSIG value is larger than your NSIG_MAX value.
+#undef NSIG_MAX
+#else
+/* since it’s usable, prefer it */
+#undef ksh_NSIG
+#define ksh_NSIG NSIG_MAX
+#endif
+/* if NSIG_MAX is now still defined, use sysconf(_SC_NSIG) at runtime */
+#endif
+/* third, for cpp without the error directive, default */
+#ifndef ksh_NSIG
+#define ksh_NSIG 64
 #endif
 
 
 /* OS-dependent additions (functions, variables, by OS) */
+
+#ifdef MKSH_EXE_EXT
+#undef MKSH_EXE_EXT
+#define MKSH_EXE_EXT	".exe"
+#else
+#define MKSH_EXE_EXT	""
+#endif
+
+#ifdef __OS2__
+#define MKSH_PATHSEPS	";"
+#define MKSH_PATHSEPC	';'
+#define MKSH_UNIXROOT	"/@unixroot"
+#else
+#define MKSH_PATHSEPS	":"
+#define MKSH_PATHSEPC	':'
+#define MKSH_UNIXROOT	""
+#endif
 
 #if !HAVE_FLOCK_DECL
 extern int flock(int, int);
@@ -476,6 +510,8 @@ EXTERN const char initvsn[] E_INIT("KSH_VERSION=@(#)" KSH_VERSIONNAME \
 
 EXTERN const char digits_uc[] E_INIT("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 EXTERN const char digits_lc[] E_INIT("0123456789abcdefghijklmnopqrstuvwxyz");
+#define letters_uc (digits_uc + 10)
+#define letters_lc (digits_lc + 10)
 
 /*
  * Evil hack for const correctness due to API brokenness
@@ -537,7 +573,7 @@ char *ucstrstr(char *, const char *);
 #define mkssert(e)	do { } while (/* CONSTCOND */ 0)
 #endif
 
-#if (!defined(MKSH_BUILDMAKEFILE4BSD) && !defined(MKSH_BUILDSH)) || (MKSH_BUILD_R != 506)
+#if (!defined(MKSH_BUILDMAKEFILE4BSD) && !defined(MKSH_BUILDSH)) || (MKSH_BUILD_R != 511)
 #error Must run Build.sh to compile this.
 extern void thiswillneverbedefinedIhope(void);
 int
@@ -802,18 +838,19 @@ EXTERN const char Toomem[] E_INIT("can't allocate %zu data bytes");
 EXTERN const char Tsynerr[] E_INIT("syntax error");
 #endif
 EXTERN const char Tselect[] E_INIT("select");
-EXTERN const char Tr_fc_e_dash[] E_INIT("r=fc -e -");
-#define Tfc_e_dash	(Tr_fc_e_dash + 2)	/* "fc -e -" */
-#define Zfc_e_dash	7			/* strlen(Tfc_e_dash) */
-EXTERN const char Tlocal_typeset[] E_INIT("local=typeset");
-#define T_typeset	(Tlocal_typeset + 5)	/* "=typeset" */
-#define Ttypeset	(Tlocal_typeset + 6)	/* "typeset" */
+EXTERN const char T_typeset[] E_INIT("=typeset");
+#define Ttypeset	(T_typeset + 1)		/* "typeset" */
 EXTERN const char Talias[] E_INIT("alias");
 EXTERN const char Tunalias[] E_INIT("unalias");
+EXTERN const char Tcat[] E_INIT("cat");
+#ifdef __OS2__
+EXTERN const char Textproc[] E_INIT("extproc");
+#endif
+#ifdef MKSH_PRINTF_BUILTIN
+EXTERN const char Tprintf[] E_INIT("printf");
+#endif
 EXTERN const char Tsgset[] E_INIT("*=set");
 #define Tset		(Tsgset + 2)		/* "set" */
-EXTERN const char Tsgunset[] E_INIT("*=unset");
-#define Tunset		(Tsgunset + 2)		/* "unset" */
 EXTERN const char Tsgexport[] E_INIT("*=export");
 #define Texport		(Tsgexport + 2)		/* "export" */
 EXTERN const char Tsgreadonly[] E_INIT("*=readonly");
@@ -892,13 +929,13 @@ typedef struct trap {
 #define SS_USER		BIT(4)	/* user is doing the set (ie, trap command) */
 #define SS_SHTRAP	BIT(5)	/* trap for internal use (ALRM, CHLD, WINCH) */
 
-#define ksh_SIGEXIT	0	/* for trap EXIT */
-#define ksh_SIGERR	NSIG	/* for trap ERR */
+#define ksh_SIGEXIT 0		/* for trap EXIT */
+#define ksh_SIGERR  ksh_NSIG	/* for trap ERR */
 
 EXTERN volatile sig_atomic_t trap;	/* traps pending? */
 EXTERN volatile sig_atomic_t intrsig;	/* pending trap interrupts command */
 EXTERN volatile sig_atomic_t fatal_trap; /* received a fatal signal */
-extern	Trap	sigtraps[NSIG+1];
+extern Trap sigtraps[ksh_NSIG + 1];
 
 /* got_winch = 1 when we need to re-adjust the window size */
 #ifdef SIGWINCH
@@ -940,8 +977,20 @@ extern unsigned char chtypes[];
 #define ctype(c, t)	tobool( ((t) == C_SUBOP2) ?			\
 			    (((c) == '#' || (c) == '%') ? 1 : 0) :	\
 			    (chtypes[(unsigned char)(c)] & (t)) )
+#define ord(c)		((int)(unsigned char)(c))
 #define ksh_isalphx(c)	ctype((c), C_ALPHA)
 #define ksh_isalnux(c)	ctype((c), C_ALPHA | C_DIGIT)
+#define ksh_isdigit(c)	(((c) >= '0') && ((c) <= '9'))
+#define ksh_islower(c)	(((c) >= 'a') && ((c) <= 'z'))
+#define ksh_isupper(c)	(((c) >= 'A') && ((c) <= 'Z'))
+#define ksh_tolower(c)	(ksh_isupper(c) ? (c) - 'A' + 'a' : (c))
+#define ksh_toupper(c)	(ksh_islower(c) ? (c) - 'a' + 'A' : (c))
+#define ksh_isdash(s)	(((s)[0] == '-') && ((s)[1] == '\0'))
+#define ksh_isspace(c)	((((c) >= 0x09) && ((c) <= 0x0D)) || ((c) == 0x20))
+#define ksh_eq(c,u,l)	(((c) | 0x20) == (l))
+#define ksh_numdig(c)	((c) - ord('0'))
+#define ksh_numuc(c)	((c) - ord('A'))
+#define ksh_numlc(c)	((c) - ord('a'))
 
 EXTERN int ifs0 E_INIT(' ');	/* for "$*" */
 
@@ -1604,6 +1653,13 @@ EXTERN char **history;		/* saved commands */
 EXTERN char **histptr;		/* last history item */
 EXTERN mksh_ari_t histsize;	/* history size */
 
+/* flags to histsave */
+#define HIST_FLUSH	0
+#define HIST_QUEUE	1
+#define HIST_APPEND	2
+#define HIST_STORE	3
+#define HIST_NOTE	4
+
 /* user and system time of last j_waitjed job */
 EXTERN struct timeval j_usrtime, j_systime;
 
@@ -1730,7 +1786,7 @@ void hist_init(Source *);
 #if HAVE_PERSISTENT_HISTORY
 void hist_finish(void);
 #endif
-void histsave(int *, const char *, bool, bool);
+void histsave(int *, const char *, int, bool);
 #if !defined(MKSH_SMALL) && HAVE_PERSISTENT_HISTORY
 bool histsync(void);
 #endif
@@ -1747,7 +1803,7 @@ int findhist(int, int, const char *, bool) MKSH_A_PURE;
 char **hist_get_newest(bool);
 void inittraps(void);
 void alarm_init(void);
-Trap *gettrap(const char *, bool);
+Trap *gettrap(const char *, bool, bool);
 void trapsig(int);
 void intrcheck(void);
 int fatal_trap_check(void);
@@ -1873,7 +1929,7 @@ int ksh_getopt(const char **, Getopt *, const char *);
 void print_value_quoted(struct shf *, const char *);
 char *quote_value(const char *);
 void print_columns(struct shf *, unsigned int,
-    char *(*)(char *, size_t, unsigned int, const void *),
+    void (*)(char *, size_t, unsigned int, const void *),
     const void *, size_t, size_t, bool);
 void strip_nuls(char *, size_t)
     MKSH_A_BOUNDED(__string__, 1, 2);
@@ -2037,6 +2093,33 @@ EXTERN mksh_ttyst tty_state;	/* saved tty state */
 EXTERN bool tty_hasstate;	/* true if tty_state is valid */
 
 extern int tty_init_fd(void);	/* initialise tty_fd, tty_devtty */
+
+#ifdef __OS2__
+#ifndef __GNUC__
+# error oops?
+#endif
+#define binopen2(path,flags)		__extension__({			\
+	int binopen2_fd = open((path), (flags) | O_BINARY);		\
+	if (binopen2_fd >= 0)						\
+		setmode(binopen2_fd, O_BINARY);				\
+	(binopen2_fd);							\
+})
+#define binopen3(path,flags,mode)	__extension__({			\
+	int binopen3_fd = open((path), (flags) | O_BINARY, (mode));	\
+	if (binopen3_fd >= 0)						\
+		setmode(binopen3_fd, O_BINARY);				\
+	(binopen3_fd);							\
+})
+#define mksh_abspath(s)			__extension__({			\
+	const char *mksh_abspath_s = (s);				\
+	(mksh_abspath_s[0] == '/' || (ksh_isalphx(mksh_abspath_s[0]) &&	\
+	    mksh_abspath_s[1] == ':'));					\
+})
+#else
+#define binopen2(path,flags)		open((path), (flags) | O_BINARY)
+#define binopen3(path,flags,mode)	open((path), (flags) | O_BINARY, (mode))
+#define mksh_abspath(s)			((s)[0] == '/')
+#endif
 
 /* be sure not to interfere with anyone else's idea about EXTERN */
 #ifdef EXTERN_DEFINED

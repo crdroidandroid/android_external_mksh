@@ -23,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/jobs.c,v 1.105.2.2 2015/04/19 19:18:18 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/jobs.c,v 1.112 2015/04/19 14:40:09 tg Exp $");
 
 #if HAVE_KILLPG
 #define mksh_killpg		killpg
@@ -1274,7 +1274,7 @@ j_waitj(Job *j,
 		}
 	} else if (Flag(FPIPEFAIL)) {
 		do {
-			int i = proc_errorlevel(p);
+			const int i = proc_errorlevel(p);
 
 			if (i)
 				rv = i;

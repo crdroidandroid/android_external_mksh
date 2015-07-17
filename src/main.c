@@ -34,7 +34,7 @@
 #include <locale.h>
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/main.c,v 1.285.2.4 2015/04/19 19:18:20 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/main.c,v 1.300 2015/07/10 19:36:35 tg Exp $");
 
 extern char **environ;
 
@@ -43,7 +43,7 @@ extern char **environ;
 #endif
 
 #ifndef MKSH_DEFAULT_TMPDIR
-#define MKSH_DEFAULT_TMPDIR	"/tmp"
+#define MKSH_DEFAULT_TMPDIR	MKSH_UNIXROOT "/tmp"
 #endif
 
 static uint8_t isuc(const char *);
@@ -66,28 +66,28 @@ static const char *initcoms[] = {
 	Ttypeset, "-x", "HOME", "PATH", "SHELL", NULL,
 	Ttypeset, "-i10", "COLUMNS", "LINES", "SECONDS", "TMOUT", NULL,
 	Talias,
-	"integer=typeset -i",
-	Tlocal_typeset,
+	"integer=\\typeset -i",
+	"local=\\typeset",
 	/* not "alias -t --": hash -r needs to work */
-	"hash=alias -t",
-	"type=whence -v",
+	"hash=\\builtin alias -t",
+	"type=\\builtin whence -v",
 #if !defined(ANDROID) && !defined(MKSH_UNEMPLOYED)
 	/* not in Android for political reasons */
 	/* not in ARGE mksh due to no job control */
-	"stop=kill -STOP",
+	"stop=\\kill -STOP",
 #endif
-	"autoload=typeset -fu",
-	"functions=typeset -f",
-	"history=fc -l",
-	"nameref=typeset -n",
+	"autoload=\\typeset -fu",
+	"functions=\\typeset -f",
+	"history=\\builtin fc -l",
+	"nameref=\\typeset -n",
 	"nohup=nohup ",
-	Tr_fc_e_dash,
-	"source=PATH=$PATH:. command .",
-	"login=exec login",
+	"r=\\builtin fc -e -",
+	"source=PATH=$PATH" MKSH_PATHSEPS ". \\command .",
+	"login=\\exec login",
 	NULL,
 	 /* this is what AT&T ksh seems to track, with the addition of emacs */
 	Talias, "-tU",
-	"cat", "cc", "chmod", "cp", "date", "ed", "emacs", "grep", "ls",
+	Tcat, "cc", "chmod", "cp", "date", "ed", "emacs", "grep", "ls",
 	"make", "mv", "pr", "rm", "sed", "sh", "vi", "who", NULL,
 	NULL
 };
@@ -193,6 +193,12 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 	ssize_t k;
 #endif
 
+#ifdef __OS2__
+	for (i = 0; i < 3; ++i)
+		if (!isatty(i))
+			setmode(i, O_BINARY);
+#endif
+
 	/* do things like getpgrp() et al. */
 	chvt_reinit();
 
@@ -264,7 +270,7 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 
 #if defined(MKSH_BINSHPOSIX) || defined(MKSH_BINSHREDUCED)
 		/* are we called as -sh or /bin/sh or so? */
-		if (!strcmp(ccp, "sh")) {
+		if (!strcmp(ccp, "sh" MKSH_EXE_EXT)) {
 			/* either also turns off braceexpand */
 #ifdef MKSH_BINSHPOSIX
 			/* enable better POSIX conformance */
@@ -318,7 +324,10 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 		 * "keeping a regular /usr"; this is supposed
 		 * to be a sane 'basic' default PATH
 		 */
-		def_path = "/bin:/usr/bin:/sbin:/usr/sbin";
+		def_path = MKSH_UNIXROOT "/bin" MKSH_PATHSEPS
+		    MKSH_UNIXROOT "/usr/bin" MKSH_PATHSEPS
+		    MKSH_UNIXROOT "/sbin" MKSH_PATHSEPS
+		    MKSH_UNIXROOT "/usr/sbin";
 #endif
 
 	/*
@@ -361,7 +370,7 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 	vp = global("PWD");
 	cp = str_val(vp);
 	/* Try to use existing $PWD if it is valid */
-	set_current_wd((cp[0] == '/' && test_eval(NULL, TO_FILEQ, cp, ".",
+	set_current_wd((mksh_abspath(cp) && test_eval(NULL, TO_FILEQ, cp, ".",
 	    true)) ? cp : NULL);
 	if (current_wd[0])
 		simplify_path(current_wd);
@@ -454,7 +463,19 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 			kshname = argv[argi++];
 	} else if (argi < argc && !Flag(FSTDIN)) {
 		s = pushs(SFILE, ATEMP);
+#ifdef __OS2__
+		/*
+		 * A bug in OS/2 extproc (like shebang) handling makes
+		 * it not pass the full pathname of a script, so we need
+		 * to search for it. This changes the behaviour of a
+		 * simple "mksh foo", but can't be helped.
+		 */
+		s->file = search_path(argv[argi++], path, X_OK, NULL);
+		if (!s->file || !*s->file)
+			s->file = argv[argi - 1];
+#else
 		s->file = argv[argi++];
+#endif
 		s->u.shf = shf_open(s->file, O_RDONLY, 0,
 		    SHF_MAPHI | SHF_CLEXEC);
 		if (s->u.shf == NULL) {
@@ -803,6 +824,8 @@ shell(Source * volatile s, volatile bool toplevel)
 			set_prompt(PS1, s);
 		}
 		t = compile(s, sfirst);
+		if (interactive)
+			histsave(&s->line, NULL, HIST_FLUSH, true);
 		sfirst = false;
 		if (!t)
 			goto source_no_tree;
@@ -1352,7 +1375,7 @@ initio(void)
 	shf_fdopen(2, SHF_WR, shl_xtrace);
 #ifdef DF
 	if ((lfp = getenv("SDMKSH_PATH")) == NULL) {
-		if ((lfp = getenv("HOME")) == NULL || *lfp != '/')
+		if ((lfp = getenv("HOME")) == NULL || !mksh_abspath(lfp))
 			errorf("cannot get home directory");
 		lfp = shf_smprintf("%s/mksh-dbg.txt", lfp);
 	}
@@ -1402,7 +1425,7 @@ savefd(int fd)
 	int nfd = fd;
 
 	if (fd < FDBASE && (nfd = fcntl(fd, F_DUPFD, FDBASE)) < 0 &&
-	    errno == EBADF)
+	    (errno == EBADF || errno == EPERM))
 		return (-1);
 	if (nfd < 0 || nfd > SHRT_MAX)
 		errorf("too many files open in shell");
@@ -1459,7 +1482,7 @@ check_fd(const char *name, int mode, const char **emsgp)
 	if (name[0] == 'p' && !name[1])
 		return (coproc_getfd(mode, emsgp));
 	while (ksh_isdigit(*name)) {
-		fd = (fd * 10) + *name - '0';
+		fd = fd * 10 + ksh_numdig(*name);
 		if (fd >= FDBASE) {
 			if (emsgp)
 				*emsgp = "file descriptor too large";
@@ -1613,28 +1636,20 @@ maketemp(Area *ap, Temp_type type, struct temp **tlist)
 	memcpy(cp, "/shXXXXXX.tmp", 14);
 	/* point to the first of six Xes */
 	cp += 3;
-	/* generate random part of filename */
-	len = -1;
-	do {
-		i = rndget() % 36;
-		cp[++len] = i < 26 ? 'a' + i : '0' + i - 26;
-	} while (len < 5);
 
 	/* cyclically attempt to open a temporary file */
-	while ((i = open(tp->tffn, O_CREAT | O_EXCL | O_RDWR | O_BINARY,
-	    0600)) < 0) {
-		if (errno != EEXIST)
+	do {
+		/* generate random part of filename */
+		len = 0;
+		do {
+			cp[len++] = digits_lc[rndget() % 36];
+		} while (len < 6);
+
+		/* check if this one works */
+		if ((i = binopen3(tp->tffn, O_CREAT | O_EXCL | O_RDWR,
+		    0600)) < 0 && errno != EEXIST)
 			goto maketemp_out;
-		/* count down from z to a then from 9 to 0 */
-		while (cp[len] == '0')
-			if (!len--)
-				goto maketemp_out;
-		if (cp[len] == 'a')
-			cp[len] = '9';
-		else
-			--cp[len];
-		/* do another cycle */
-	}
+	} while (i < 0);
 
 	if (type == TT_FUNSUB) {
 		/* map us high and mark as close-on-exec */

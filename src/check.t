@@ -1,4 +1,4 @@
-# $MirOS: src/bin/mksh/check.t,v 1.667.2.7 2015/04/19 19:18:10 tg Exp $
+# $MirOS: src/bin/mksh/check.t,v 1.703 2015/07/10 19:36:31 tg Exp $
 # -*- mode: sh -*-
 #-
 # Copyright © 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
@@ -30,7 +30,7 @@
 # (2013/12/02 20:39:44) http://openbsd.cs.toronto.edu/cgi-bin/cvsweb/src/regress/bin/ksh/?sortby=date
 
 expected-stdout:
-	@(#)MIRBSD KSH R50 2015/04/19
+	@(#)MIRBSD KSH R51 2015/07/10
 description:
 	Check version of shell.
 stdin:
@@ -39,7 +39,7 @@ name: KSH_VERSION
 category: shell:legacy-no
 ---
 expected-stdout:
-	@(#)LEGACY KSH R50 2015/04/19
+	@(#)LEGACY KSH R51 2015/07/10
 description:
 	Check version of legacy shell.
 stdin:
@@ -232,7 +232,7 @@ time-limit: 3
 stdin:
 	print '#!'"$__progname"'\necho tf' >lq
 	chmod +x lq
-	PATH=$PWD:$PATH
+	PATH=$PWD$PATHSEP$PATH
 	alias lq=lq
 	lq
 	echo = now
@@ -1198,7 +1198,7 @@ need-pass: no
 # the mv command fails on Cygwin
 # Hurd aborts the testsuite (permission denied)
 # QNX does not find subdir to cd into
-category: !os:cygwin,!os:gnu,!os:msys,!os:nto,!nosymlink
+category: !os:cygwin,!os:gnu,!os:msys,!os:nto,!os:os390,!nosymlink
 file-setup: file 644 "x"
 	mkdir noread noread/target noread/target/subdir
 	ln -s noread link
@@ -2075,9 +2075,9 @@ expected-stdout:
 name: glob-bad-2
 description:
 	Check that symbolic links aren't stat()'d
-# breaks on FreeMiNT (cannot unlink dangling symlinks)
-# breaks on MSYS (does not support symlinks)
 # breaks on Dell UNIX 4.0 R2.2 (SVR4) where unlink also fails
+# breaks on FreeMiNT (cannot unlink dangling symlinks)
+# breaks on MSYS, OS/2 (do not support symlinks)
 category: !os:mint,!os:msys,!os:svr4.0,!nosymlink
 file-setup: dir 755 "dir"
 file-setup: symlink 644 "dir/abc"
@@ -2132,7 +2132,7 @@ description:
 # breaks on Mac OSX (HFS+ non-standard Unicode canonical decomposition)
 # breaks on Cygwin 1.7 (files are now UTF-16 or something)
 # breaks on QNX 6.4.1 (says RT)
-category: !os:cygwin,!os:darwin,!os:msys,!os:nto
+category: !os:cygwin,!os:darwin,!os:msys,!os:nto,!os:os2
 need-pass: no
 file-setup: file 644 "a�c"
 stdin:
@@ -3555,7 +3555,6 @@ name: history-ed-3-old
 description:
 	Newly created multi line commands show up as single command
 	in history.
-	(NOTE: adjusted for COMPLEX HISTORY compile time option)
 	(ksh88 fails 'cause it lists the fc command)
 category: stdout-ed
 need-ctty: yes
@@ -3582,7 +3581,7 @@ expected-stdout:
 	a new line
 	1	echo abc def
 	2	echo FOOBAR def
-	3	echo a new line
+		echo a new line
 expected-stderr-pattern:
 	/^X*echo FOOBAR def\necho a new line\nX*$/
 ---
@@ -3664,7 +3663,7 @@ expected-stdout:
 	a new line
 	1	echo abc def
 	2	echo FOOBAR def
-	3	echo a new line
+		echo a new line
 expected-stderr-pattern:
 	/^X*13\n32\necho FOOBAR def\necho a new line\nX*$/
 ---
@@ -4545,6 +4544,20 @@ expected-stdout:
 	64
 	64
 ---
+name: integer-base-8
+description:
+	Check that base-36 works (full span)
+stdin:
+	echo 1:$((36#109AZ)).
+	typeset -i36 x=1691675
+	echo 2:$x.
+	typeset -Uui36 x
+	echo 3:$x.
+expected-stdout:
+	1:1691675.
+	2:36#109az.
+	3:36#109AZ.
+---
 name: integer-base-check-flat
 description:
 	Check behaviour does not match POSuX (except if set -o posix),
@@ -4561,11 +4574,11 @@ expected-stdout:
 ---
 name: integer-base-check-numeric-from
 description:
-	Check behaviour for base one to 36, and that 37 errors out
+	Check behaviour for base one to 36, and that 37 degrades to 10
 stdin:
 	echo 1:$((1#1))0.
 	i=1
-	while (( ++i <= 36 )); do
+	while (( ++i <= 37 )); do
 		eval 'echo '$i':$(('$i'#10)).'
 	done
 	echo 37:$($__progname -c 'echo $((37#10))').$?:
@@ -4606,13 +4619,12 @@ expected-stdout:
 	34:34.
 	35:35.
 	36:36.
-	37:.0:
-expected-stderr-pattern:
-	/.*bad number '37#10'/
+	37:10.
+	37:10.0:
 ---
 name: integer-base-check-numeric-to
 description:
-	Check behaviour for base one to 36, and that 37 errors out
+	Check behaviour for base one to 36, and that 37 degrades to 10
 stdin:
 	i=0
 	while (( ++i <= 37 )); do
@@ -4657,9 +4669,7 @@ expected-stdout:
 	34:34#1U.64.
 	35:35#1T.64.
 	36:36#1S.64.
-	37:36#1S.64.
-expected-stderr-pattern:
-	/.*bad integer base: 37/
+	37:64.64.
 ---
 name: integer-arithmetic-span
 description:
@@ -4826,7 +4836,7 @@ expected-stdout:
 	PROG: trap: bad signal 'UNKNOWNSIGNAL'
 	PROG: trap: bad signal '999999'
 	PROG: trap: bad signal 'FNORD'
-	= 3
+	= 1
 	trap 2 executed
 ---
 name: read-IFS-1
@@ -5008,8 +5018,8 @@ description:
 	need to be moved out of the switch to before findcom() is
 	called - I don't know what this will break.
 stdin:
-	: ${PWD:-`pwd 2> /dev/null`}
-	: ${PWD:?"PWD not set - can't do test"}
+	: "${PWD:-`pwd 2> /dev/null`}"
+	: "${PWD:?"PWD not set - can't do test"}"
 	mkdir Y
 	cat > Y/xxxscript << EOF
 	#!/bin/sh
@@ -5547,7 +5557,7 @@ description:
 stdin:
 	print '#!'"$__progname"'\nunset RANDOM\nexport | while IFS= read -r' \
 	    'RANDOM; do eval '\''print -r -- "$RANDOM=$'\''"$RANDOM"'\'\"\'\; \
-	    done >env; chmod +x env; PATH=.:$PATH
+	    done >env; chmod +x env; PATH=.$PATHSEP$PATH
 	foo=bar
 	readonly foo
 	foo=stuff env | grep '^foo'
@@ -6253,7 +6263,7 @@ description:
 stdin:
 	print '#!'"$__progname"'\nunset RANDOM\nexport | while IFS= read -r' \
 	    'RANDOM; do eval '\''print -r -- "$RANDOM=$'\''"$RANDOM"'\'\"\'\; \
-	    done >env; chmod +x env; PATH=.:$PATH
+	    done >env; chmod +x env; PATH=.$PATHSEP$PATH
 	FOO=bar exec env
 expected-stdout-pattern:
 	/(^|.*\n)FOO=bar\n/
@@ -6265,7 +6275,7 @@ description:
 stdin:
 	print '#!'"$__progname"'\nunset RANDOM\nexport | while IFS= read -r' \
 	    'RANDOM; do eval '\''print -r -- "$RANDOM=$'\''"$RANDOM"'\'\"\'\; \
-	    done >env; chmod +x env; PATH=.:$PATH
+	    done >env; chmod +x env; PATH=.$PATHSEP$PATH
 	env >bar1
 	FOO=bar exec; env >bar2
 	cmp -s bar1 bar2
@@ -6509,7 +6519,7 @@ stdin:
 	print '#!'"$__progname"'\nexec "$1"' >env
 	print '#!'"$__progname"'\nexit 1' >false
 	chmod +x env false
-	PATH=.:$PATH
+	PATH=.$PATHSEP$PATH
 	set -ex
 	env false && echo something
 	echo END
@@ -6527,7 +6537,7 @@ stdin:
 	print '#!'"$__progname"'\nexit 1' >false
 	print '#!'"$__progname"'\nexit 0' >true
 	chmod +x env false
-	PATH=.:$PATH
+	PATH=.$PATHSEP$PATH
 	set -ex
 	if env true; then
 		env false && echo something
@@ -7271,7 +7281,7 @@ stdin:
 	set -A anzahl -- foo/*
 	echo got ${#anzahl[*]} files
 	chmod +x foo/*
-	export PATH=$(pwd)/foo:$PATH
+	export PATH=$(pwd)/foo$PATHSEP$PATH
 	"$__progname" -c '﻿fnord'
 	echo =
 	"$__progname" -c '﻿fnord; fnord; ﻿fnord; fnord'
@@ -7441,24 +7451,24 @@ expected-stdout:
 name: aliases-1
 description:
 	Check if built-in shell aliases are okay
-category: !android,!arge
+category: !android,!arge,!os:os2
 stdin:
 	alias
 	typeset -f
 expected-stdout:
-	autoload='typeset -fu'
-	functions='typeset -f'
-	hash='alias -t'
-	history='fc -l'
-	integer='typeset -i'
-	local=typeset
-	login='exec login'
-	nameref='typeset -n'
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
 	nohup='nohup '
-	r='fc -e -'
-	source='PATH=$PATH:. command .'
-	stop='kill -STOP'
-	type='whence -v'
+	r='\builtin fc -e -'
+	source='PATH=$PATH:. \command .'
+	stop='\kill -STOP'
+	type='\builtin whence -v'
 ---
 name: aliases-1-hartz4
 description:
@@ -7468,88 +7478,85 @@ stdin:
 	alias
 	typeset -f
 expected-stdout:
-	autoload='typeset -fu'
-	functions='typeset -f'
-	hash='alias -t'
-	history='fc -l'
-	integer='typeset -i'
-	local=typeset
-	login='exec login'
-	nameref='typeset -n'
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
 	nohup='nohup '
-	r='fc -e -'
-	source='PATH=$PATH:. command .'
-	type='whence -v'
+	r='\builtin fc -e -'
+	source='PATH=$PATH:. \command .'
+	type='\builtin whence -v'
 ---
-name: aliases-2a
+name: aliases-1-os2
 description:
-	Check if “set -o sh” disables built-in aliases (except a few)
-category: disabled
-arguments: !-o!sh!
+	Check if built-in shell aliases are okay
+category: os:os2
 stdin:
 	alias
 	typeset -f
 expected-stdout:
-	integer='typeset -i'
-	local=typeset
----
-name: aliases-3a
-description:
-	Check if running as sh disables built-in aliases (except a few)
-category: disabled
-stdin:
-	cp "$__progname" sh
-	./sh -c 'alias; typeset -f'
-	rm -f sh
-expected-stdout:
-	integer='typeset -i'
-	local=typeset
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
+	nohup='nohup '
+	r='\builtin fc -e -'
+	source='PATH=$PATH;. \command .'
+	type='\builtin whence -v'
 ---
 name: aliases-2b
 description:
 	Check if “set -o sh” does not influence built-in aliases
-category: !android,!arge
+category: !android,!arge,!os:os2
 arguments: !-o!sh!
 stdin:
 	alias
 	typeset -f
 expected-stdout:
-	autoload='typeset -fu'
-	functions='typeset -f'
-	hash='alias -t'
-	history='fc -l'
-	integer='typeset -i'
-	local=typeset
-	login='exec login'
-	nameref='typeset -n'
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
 	nohup='nohup '
-	r='fc -e -'
-	source='PATH=$PATH:. command .'
-	stop='kill -STOP'
-	type='whence -v'
+	r='\builtin fc -e -'
+	source='PATH=$PATH:. \command .'
+	stop='\kill -STOP'
+	type='\builtin whence -v'
 ---
 name: aliases-3b
 description:
 	Check if running as sh does not influence built-in aliases
-category: !android,!arge
+category: !android,!arge,!os:os2
 stdin:
 	cp "$__progname" sh
 	./sh -c 'alias; typeset -f'
 	rm -f sh
 expected-stdout:
-	autoload='typeset -fu'
-	functions='typeset -f'
-	hash='alias -t'
-	history='fc -l'
-	integer='typeset -i'
-	local=typeset
-	login='exec login'
-	nameref='typeset -n'
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
 	nohup='nohup '
-	r='fc -e -'
-	source='PATH=$PATH:. command .'
-	stop='kill -STOP'
-	type='whence -v'
+	r='\builtin fc -e -'
+	source='PATH=$PATH:. \command .'
+	stop='\kill -STOP'
+	type='\builtin whence -v'
 ---
 name: aliases-2b-hartz4
 description:
@@ -7560,18 +7567,18 @@ stdin:
 	alias
 	typeset -f
 expected-stdout:
-	autoload='typeset -fu'
-	functions='typeset -f'
-	hash='alias -t'
-	history='fc -l'
-	integer='typeset -i'
-	local=typeset
-	login='exec login'
-	nameref='typeset -n'
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
 	nohup='nohup '
-	r='fc -e -'
-	source='PATH=$PATH:. command .'
-	type='whence -v'
+	r='\builtin fc -e -'
+	source='PATH=$PATH:. \command .'
+	type='\builtin whence -v'
 ---
 name: aliases-3b-hartz4
 description:
@@ -7582,18 +7589,62 @@ stdin:
 	./sh -c 'alias; typeset -f'
 	rm -f sh
 expected-stdout:
-	autoload='typeset -fu'
-	functions='typeset -f'
-	hash='alias -t'
-	history='fc -l'
-	integer='typeset -i'
-	local=typeset
-	login='exec login'
-	nameref='typeset -n'
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
 	nohup='nohup '
-	r='fc -e -'
-	source='PATH=$PATH:. command .'
-	type='whence -v'
+	r='\builtin fc -e -'
+	source='PATH=$PATH:. \command .'
+	type='\builtin whence -v'
+---
+name: aliases-2b-os2
+description:
+	Check if “set -o sh” does not influence built-in aliases
+category: os:os2
+arguments: !-o!sh!
+stdin:
+	alias
+	typeset -f
+expected-stdout:
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
+	nohup='nohup '
+	r='\builtin fc -e -'
+	source='PATH=$PATH;. \command .'
+	type='\builtin whence -v'
+---
+name: aliases-3b-os2
+description:
+	Check if running as sh does not influence built-in aliases
+category: os:os2
+stdin:
+	cp "$__progname" sh
+	./sh -c 'alias; typeset -f'
+	rm -f sh
+expected-stdout:
+	autoload='\typeset -fu'
+	functions='\typeset -f'
+	hash='\builtin alias -t'
+	history='\builtin fc -l'
+	integer='\typeset -i'
+	local='\typeset'
+	login='\exec login'
+	nameref='\typeset -n'
+	nohup='nohup '
+	r='\builtin fc -e -'
+	source='PATH=$PATH;. \command .'
+	type='\builtin whence -v'
 ---
 name: aliases-cmdline
 description:
@@ -7609,6 +7660,20 @@ expected-stdout:
 name: aliases-funcdef-1
 description:
 	Check if POSIX functions take precedences over aliases
+category: shell:legacy-no
+stdin:
+	alias foo='echo makro'
+	foo() {
+		echo funktion
+	}
+	foo
+expected-stdout:
+	makro
+---
+name: aliases-funcdef-1-legacy
+description:
+	Check if POSIX functions take precedences over aliases
+category: shell:legacy-yes
 stdin:
 	alias foo='echo makro'
 	foo() {
@@ -7621,6 +7686,20 @@ expected-stdout:
 name: aliases-funcdef-2
 description:
 	Check if POSIX functions take precedences over aliases
+category: shell:legacy-no
+stdin:
+	alias foo='echo makro'
+	foo () {
+		echo funktion
+	}
+	foo
+expected-stdout:
+	makro
+---
+name: aliases-funcdef-2-legacy
+description:
+	Check if POSIX functions take precedences over aliases
+category: shell:legacy-yes
 stdin:
 	alias foo='echo makro'
 	foo () {
@@ -7650,8 +7729,8 @@ stdin:
 	:|| local() { :; }
 	alias local
 expected-stdout:
-	local=typeset
-	local=typeset
+	local='\typeset'
+	local='\typeset'
 ---
 name: arrays-1
 description:
@@ -8518,6 +8597,7 @@ description:
 	Ensure concatenating behaviour matches other shells
 stdin:
 	showargs() { for s_arg in "$@"; do echo -n "<$s_arg> "; done; echo .; }
+	showargs 0 ""$@
 	x=; showargs 1 "$x"$@
 	set A; showargs 2 "${@:+}"
 	n() { echo "$#"; }
@@ -8537,6 +8617,7 @@ stdin:
 	n "$@"
 	n "$@""$e"
 expected-stdout:
+	<0> <> .
 	<1> <> .
 	<2> <> .
 	2
@@ -8597,6 +8678,7 @@ stdin:
 	cat >foo <<-'EOF'
 		x='bar
 		' #
+		echo .${#x} #
 		if test x"$KSH_VERSION" = x""; then #
 			printf '<%s>' "$x" #
 		else #
@@ -8608,8 +8690,10 @@ stdin:
 		print -r -- "{$line}"
 	done
 expected-stdout:
-	[<bar
+	[.5
+	<bar
 	>]
+	{.5}
 	{<bar}
 ---
 name: print-lf
@@ -8619,6 +8703,7 @@ stdin:
 	cat >foo <<-'EOF'
 		x='bar
 		' #
+		echo .${#x} #
 		if test x"$KSH_VERSION" = x""; then #
 			printf '<%s>' "$x" #
 		else #
@@ -8630,8 +8715,10 @@ stdin:
 		print -r -- "{$line}"
 	done
 expected-stdout:
-	[<bar
+	[.4
+	<bar
 	>]
+	{.4}
 	{<bar}
 ---
 name: print-nul-chars
@@ -8835,6 +8922,7 @@ description:
 	make aliases not conflict with functions, legacy version:
 	undefine these aliases upon definition of the function
 	note: for ksh functions, the order of preference differs in GNU bash
+category: shell:legacy-yes
 stdin:
 	# POSIX function overrides and removes alias
 	alias foo='echo bar'
@@ -8871,6 +8959,46 @@ expected-stdout:
 	bal
 	bfn
 ---
+name: alias-function-no-conflict
+description:
+	make aliases not conflict with function definitions
+category: shell:legacy-no
+stdin:
+	# POSIX function can be defined, but alias overrides it
+	alias foo='echo bar'
+	foo
+	foo() {
+		echo baz
+	}
+	foo
+	unset -f foo
+	foo 2>/dev/null || echo rab
+	# alias overrides ksh function
+	alias korn='echo bar'
+	korn
+	function korn {
+		echo baz
+	}
+	korn
+	# alias temporarily overrides POSIX function
+	bla() {
+		echo bfn
+	}
+	bla
+	alias bla='echo bal'
+	bla
+	unalias bla
+	bla
+expected-stdout:
+	bar
+	bar
+	bar
+	bar
+	bar
+	bfn
+	bal
+	bfn
+---
 name: bash-function-parens
 description:
 	ensure the keyword function is ignored when preceding
@@ -8886,8 +9014,8 @@ stdin:
 	mk 'function foo' >f-korn
 	mk 'foo ()' >f-dash
 	mk 'function foo ()' >f-bash
-	# pre-R51 can do without a backslash in front of the second stop
-	mk 'function stop ()' 'stop' >f-stop
+	# lksh can do without the backslash, too (cf. aliases-funcdef-2-legacy)
+	mk 'function stop ()' '\stop' >f-stop
 	print '#!'"$__progname"'\nprint -r -- "${0%/f-argh}"' >f-argh
 	chmod +x f-*
 	u=$(./f-argh)
@@ -9844,7 +9972,7 @@ description:
 stdin:
 	print '#!'"$__progname"'\nunset RANDOM\nexport | while IFS= read -r' \
 	    'RANDOM; do eval '\''print -r -- "$RANDOM=$'\''"$RANDOM"'\'\"\'\; \
-	    done >env; chmod +x env; PATH=.:$PATH
+	    done >env; chmod +x env; PATH=.$PATHSEP$PATH
 	function k {
 		if [ x$FOO != xbar ]; then
 			echo 1
@@ -10016,7 +10144,7 @@ description:
 	is a must (a non-recursive parser cannot pass all three of
 	these test cases, especially the ‘#’ is difficult)
 stdin:
-	print '#!'"$__progname"'\necho 1234' >id; chmod +x id; PATH=.:$PATH
+	print '#!'"$__progname"'\necho 1234' >id; chmod +x id; PATH=.$PATHSEP$PATH
 	echo $(typeset -i10 x=16#20; echo $x)
 	echo $(typeset -Uui16 x=16#$(id -u)
 	) .
@@ -10328,7 +10456,7 @@ expected-stdout:
 	}
 	inline_TWHILE() {
 		i=1 
-		while let] " i < 10 " 
+		while \let] " i < 10 " 
 		do
 			echo $i 
 			let ++i 
@@ -10338,20 +10466,20 @@ expected-stdout:
 		i=1; while (( i < 10 )); do echo $i; let ++i; done
 	); }
 	function comsub_TWHILE {
-		x=$(i=1 ; while let] " i < 10 " ; do echo $i ; let ++i ; done ) 
+		x=$(i=1 ; while \let] " i < 10 " ; do echo $i ; let ++i ; done ) 
 	} 
 	function reread_TWHILE { x=$((
 		i=1; while (( i < 10 )); do echo $i; let ++i; done
 	)|tr u x); }
 	function reread_TWHILE {
-		x=$(( i=1 ; while let] " i < 10 " ; do echo $i ; let ++i ; done ) | tr u x ) 
+		x=$(( i=1 ; while \let] " i < 10 " ; do echo $i ; let ++i ; done ) | tr u x ) 
 	} 
 	inline_TUNTIL() {
 		i=10; until  (( !--i )) ; do echo $i; done
 	}
 	inline_TUNTIL() {
 		i=10 
-		until let] " !--i " 
+		until \let] " !--i " 
 		do
 			echo $i 
 		done 
@@ -10360,13 +10488,13 @@ expected-stdout:
 		i=10; until  (( !--i )) ; do echo $i; done
 	); }
 	function comsub_TUNTIL {
-		x=$(i=10 ; until let] " !--i " ; do echo $i ; done ) 
+		x=$(i=10 ; until \let] " !--i " ; do echo $i ; done ) 
 	} 
 	function reread_TUNTIL { x=$((
 		i=10; until  (( !--i )) ; do echo $i; done
 	)|tr u x); }
 	function reread_TUNTIL {
-		x=$(( i=10 ; until let] " !--i " ; do echo $i ; done ) | tr u x ) 
+		x=$(( i=10 ; until \let] " !--i " ; do echo $i ; done ) | tr u x ) 
 	} 
 	inline_TCOPROC() {
 		cat  *  |&  ls
@@ -10742,7 +10870,7 @@ expected-stdout:
 		case x in
 		(x)
 			a+=b 
-			set -A c+ -- d e 
+			\set -A c+ -- d e 
 			;;
 		esac 
 	} 
@@ -10752,7 +10880,7 @@ expected-stdout:
 		esac
 	); }
 	function comsub_wdarrassign {
-		x=$(case x in (x) a+=b ; set -A c+ -- d e  ;; esac ) 
+		x=$(case x in (x) a+=b ; \set -A c+ -- d e  ;; esac ) 
 	} 
 	function reread_wdarrassign { x=$((
 		case x in
@@ -10760,7 +10888,7 @@ expected-stdout:
 		esac
 	)|tr u x); }
 	function reread_wdarrassign {
-		x=$(( case x in (x) a+=b ; set -A c+ -- d e  ;; esac ) | tr u x ) 
+		x=$(( case x in (x) a+=b ; \set -A c+ -- d e  ;; esac ) | tr u x ) 
 	} 
 ---
 name: comsub-torture-io
@@ -10980,7 +11108,7 @@ expected-stdout:
 	}
 	inline_TWHILE() {
 		i=1 
-		while let] " i < 10 " >&3 
+		while \let] " i < 10 " >&3 
 		do
 			echo $i 
 			let ++i 
@@ -10990,20 +11118,20 @@ expected-stdout:
 		i=1; while (( i < 10 )) >&3; do echo $i; let ++i; done >&3
 	); }
 	function comsub_TWHILE {
-		x=$(i=1 ; while let] " i < 10 " >&3 ; do echo $i ; let ++i ; done >&3 ) 
+		x=$(i=1 ; while \let] " i < 10 " >&3 ; do echo $i ; let ++i ; done >&3 ) 
 	} 
 	function reread_TWHILE { x=$((
 		i=1; while (( i < 10 )) >&3; do echo $i; let ++i; done >&3
 	)|tr u x); }
 	function reread_TWHILE {
-		x=$(( i=1 ; while let] " i < 10 " >&3 ; do echo $i ; let ++i ; done >&3 ) | tr u x ) 
+		x=$(( i=1 ; while \let] " i < 10 " >&3 ; do echo $i ; let ++i ; done >&3 ) | tr u x ) 
 	} 
 	inline_TUNTIL() {
 		i=10; until  (( !--i )) >&3 ; do echo $i; done >&3
 	}
 	inline_TUNTIL() {
 		i=10 
-		until let] " !--i " >&3 
+		until \let] " !--i " >&3 
 		do
 			echo $i 
 		done >&3 
@@ -11012,13 +11140,13 @@ expected-stdout:
 		i=10; until  (( !--i )) >&3 ; do echo $i; done >&3
 	); }
 	function comsub_TUNTIL {
-		x=$(i=10 ; until let] " !--i " >&3 ; do echo $i ; done >&3 ) 
+		x=$(i=10 ; until \let] " !--i " >&3 ; do echo $i ; done >&3 ) 
 	} 
 	function reread_TUNTIL { x=$((
 		i=10; until  (( !--i )) >&3 ; do echo $i; done >&3
 	)|tr u x); }
 	function reread_TUNTIL {
-		x=$(( i=10 ; until let] " !--i " >&3 ; do echo $i ; done >&3 ) | tr u x ) 
+		x=$(( i=10 ; until \let] " !--i " >&3 ; do echo $i ; done >&3 ) | tr u x ) 
 	} 
 	inline_TCOPROC() {
 		cat  *  >&3 |&  >&3 ls
@@ -11251,7 +11379,7 @@ file-setup: file 755 "!false"
 	#! /bin/sh
 	echo si
 stdin:
-	export PATH=.:$PATH
+	export PATH=.$PATHSEP$PATH
 	falsetto
 	echo yeap
 	!false
@@ -11281,7 +11409,7 @@ file-setup: file 755 "!false"
 	#! /bin/sh
 	echo si
 stdin:
-	export PATH=.:$PATH
+	export PATH=.$PATHSEP$PATH
 	falsetto
 	echo yeap
 	!false
@@ -12104,9 +12232,30 @@ expected-stderr:
 	[(p:sh)(f1:sh)(f2:sh)] print '(o1:shx)'
 	[(p:sh)(f1:sh)(f2:sh)] set +x
 ---
+name: fksh-flags
+description:
+	Check that FKSH functions have their own shell flags
+category: shell:legacy-no
+stdin:
+	[[ $KSH_VERSION = Version* ]] && set +B
+	function foo {
+		set +f
+		set -e
+		echo 2 "${-/s}" .
+	}
+	set -fh
+	echo 1 "${-/s}" .
+	foo
+	echo 3 "${-/s}" .
+expected-stdout:
+	1 fh .
+	2 eh .
+	3 fh .
+---
 name: fksh-flags-legacy
 description:
 	Check that even FKSH functions share the shell flags
+category: shell:legacy-yes
 stdin:
 	[[ $KSH_VERSION = Version* ]] && set +B
 	foo() {

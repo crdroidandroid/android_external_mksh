@@ -38,7 +38,7 @@
 #endif
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/funcs.c,v 1.259.2.5 2015/04/19 19:18:16 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/funcs.c,v 1.280 2015/07/09 20:52:39 tg Exp $");
 
 #if HAVE_KILLPG
 /*
@@ -99,7 +99,7 @@ const struct builtin mkshbuiltins[] = {
 	{Talias, c_alias},
 	{"*=break", c_brkcont},
 	{Tgbuiltin, c_builtin},
-	{"cat", c_cat},
+	{Tcat, c_cat},
 	{"cd", c_cd},
 	/* dash compatibility hack */
 	{"chdir", c_cd},
@@ -138,7 +138,7 @@ const struct builtin mkshbuiltins[] = {
 	{"ulimit", c_ulimit},
 	{"umask", c_umask},
 	{Tunalias, c_unalias},
-	{Tsgunset, c_unset},
+	{"*=unset", c_unset},
 	{"=wait", c_wait},
 	{"whence", c_whence},
 #ifndef MKSH_UNEMPLOYED
@@ -152,7 +152,7 @@ const struct builtin mkshbuiltins[] = {
 	{"mknod", c_mknod},
 #endif
 #ifdef MKSH_PRINTF_BUILTIN
-	{"printf", c_printf},
+	{Tprintf, c_printf},
 #endif
 #if HAVE_SELECT
 	{"sleep", c_sleep},
@@ -160,6 +160,9 @@ const struct builtin mkshbuiltins[] = {
 #ifdef __MirBSD__
 	/* alias to "true" for historical reasons */
 	{"domainname", c_true},
+#endif
+#ifdef __OS2__
+	{Textproc, c_true},
 #endif
 	{NULL, (int (*)(const char **))NULL}
 };
@@ -224,7 +227,7 @@ static int test_primary(Test_env *, bool);
 static Test_op ptest_isa(Test_env *, Test_meta);
 static const char *ptest_getopnd(Test_env *, Test_op, bool);
 static void ptest_error(Test_env *, int, const char *);
-static char *kill_fmt_entry(char *, size_t, unsigned int, const void *);
+static void kill_fmt_entry(char *, size_t, unsigned int, const void *);
 static void p_time(struct shf *, bool, long, int, int,
     const char *, const char *);
 
@@ -442,7 +445,7 @@ c_print(const char **wp)
 
 	if (flags & PO_HIST) {
 		Xput(xs, xp, '\0');
-		histsave(&source->line, Xstring(xs, xp), true, false);
+		histsave(&source->line, Xstring(xs, xp), HIST_STORE, false);
 		Xfree(xs, xp);
 	} else {
 		int len = Xlength(xs, xp);
@@ -538,7 +541,7 @@ c_whence(const char **wp)
 		uint32_t h = 0;
 
 		tp = NULL;
-		if ((iam_whence || vflag) && !pflag)
+		if (!pflag)
 			tp = ktsearch(&keywords, id, h = hash(id));
 		if (!tp && !pflag) {
 			tp = ktsearch(&aliases, id, h ? h : hash(id));
@@ -778,9 +781,13 @@ c_typeset(const char **wp)
 
 	if (fieldstr && !bi_getn(fieldstr, &field))
 		return (1);
-	if (basestr && (!getn(basestr, &base) || base < 1 || base > 36)) {
-		bi_errorf("%s: %s", "bad integer base", basestr);
-		return (1);
+	if (basestr) {
+		if (!getn(basestr, &base)) {
+			bi_errorf("%s: %s", "bad integer base", basestr);
+			return (1);
+		}
+		if (base < 1 || base > 36)
+			base = 10;
 	}
 
 	if (!(builtin_opt.info & GI_MINUSMINUS) && wp[builtin_opt.optind] &&
@@ -1303,7 +1310,7 @@ c_fgbg(const char **wp)
 #endif
 
 /* format a single kill item */
-static char *
+static void
 kill_fmt_entry(char *buf, size_t buflen, unsigned int i, const void *arg)
 {
 	const struct kill_info *ki = (const struct kill_info *)arg;
@@ -1313,7 +1320,6 @@ kill_fmt_entry(char *buf, size_t buflen, unsigned int i, const void *arg)
 	    ki->num_width, i,
 	    ki->name_width, sigtraps[i].name,
 	    sigtraps[i].mess);
-	return (buf);
 }
 
 int
@@ -1327,7 +1333,7 @@ c_kill(const char **wp)
 	/* assume old style options if -digits or -UPPERCASE */
 	if ((p = wp[1]) && *p == '-' && (ksh_isdigit(p[1]) ||
 	    ksh_isupper(p[1]))) {
-		if (!(t = gettrap(p + 1, false))) {
+		if (!(t = gettrap(p + 1, false, false))) {
 			bi_errorf("bad signal '%s'", p + 1);
 			return (1);
 		}
@@ -1341,7 +1347,8 @@ c_kill(const char **wp)
 				lflag = true;
 				break;
 			case 's':
-				if (!(t = gettrap(builtin_opt.optarg, true))) {
+				if (!(t = gettrap(builtin_opt.optarg,
+				    true, false))) {
 					bi_errorf("bad signal '%s'",
 					    builtin_opt.optarg);
 					return (1);
@@ -1367,24 +1374,25 @@ c_kill(const char **wp)
 			for (; wp[i]; i++) {
 				if (!bi_getn(wp[i], &n))
 					return (1);
-#if (NSIG < 128)
-				if (n > 128 && n < 128 + NSIG)
+#if (ksh_NSIG < 128)
+				if (n > 128 && n < 128 + ksh_NSIG)
 					n -= 128;
 #endif
-				if (n > 0 && n < NSIG)
+				if (n > 0 && n < ksh_NSIG)
 					shprintf("%s\n", sigtraps[n].name);
 				else
 					shprintf("%d\n", n);
 			}
 		} else {
-			ssize_t w, mess_cols, mess_octs;
-			int j;
-			struct kill_info ki;
+			ssize_t w, mess_cols = 0, mess_octs = 0;
+			int j = ksh_NSIG;
+			struct kill_info ki = { 0, 0 };
 
-			for (j = NSIG, ki.num_width = 1; j >= 10; j /= 10)
+			do {
 				ki.num_width++;
-			ki.name_width = mess_cols = mess_octs = 0;
-			for (j = 0; j < NSIG; j++) {
+			} while ((j /= 10));
+
+			for (j = 1; j < ksh_NSIG; j++) {
 				w = strlen(sigtraps[j].name);
 				if (w > ki.name_width)
 					ki.name_width = w;
@@ -1396,7 +1404,7 @@ c_kill(const char **wp)
 					mess_cols = w;
 			}
 
-			print_columns(shl_stdout, (unsigned int)(NSIG - 1),
+			print_columns(shl_stdout, (unsigned int)(ksh_NSIG - 1),
 			    kill_fmt_entry, (void *)&ki,
 			    ki.num_width + 1 + ki.name_width + 1 + mess_octs,
 			    ki.num_width + 1 + ki.name_width + 1 + mess_cols,
@@ -1662,8 +1670,11 @@ c_umask(const char **wp)
 		mode_t new_umask;
 
 		if (ksh_isdigit(*cp)) {
-			for (new_umask = 0; *cp >= '0' && *cp <= '7'; cp++)
-				new_umask = new_umask * 8 + (*cp - '0');
+			new_umask = 0;
+			while (*cp >= ord('0') && *cp <= ord('7')) {
+				new_umask = new_umask * 8 + ksh_numdig(*cp);
+				++cp;
+			}
 			if (*cp) {
 				bi_errorf("bad number");
 				return (1);
@@ -1955,8 +1966,9 @@ c_read(const char **wp)
 			break;
 		case 0:
 			/* timeout expired for this call */
-			rv = 1;
-			goto c_read_out;
+			bytesread = 0;
+			/* fake EOF read; all cases return 1 */
+			goto c_read_didread;
 		default:
 			bi_errorf("%s: %s", Tselect, cstrerror(errno));
 			rv = 2;
@@ -1981,6 +1993,7 @@ c_read(const char **wp)
 		goto c_read_readloop;
 	}
 
+ c_read_didread:
 	switch (readmode) {
 	case READALL:
 		if (bytesread == 0) {
@@ -2003,7 +2016,7 @@ c_read(const char **wp)
 		if (bytesread == 0) {
 			/* end of file reached */
 			rv = 1;
-			xp = Xstring(xs, xp);
+			/* may be partial read: $? = 1, but content */
 			goto c_read_readdone;
 		}
 		xp += bytesread;
@@ -2066,7 +2079,7 @@ c_read(const char **wp)
 	}
 
 	if (savehist)
-		histsave(&source->line, Xstring(xs, xp), true, false);
+		histsave(&source->line, Xstring(xs, xp), HIST_STORE, false);
 
 	ccp = cp = Xclose(xs, xp);
 	expanding = false;
@@ -2279,41 +2292,44 @@ c_eval(const char **wp)
 int
 c_trap(const char **wp)
 {
-	int i;
+	Trap *p = sigtraps;
+	int i = ksh_NSIG + 1;
 	const char *s;
-	Trap *p;
 
 	if (ksh_getopt(wp, &builtin_opt, null) == '?')
 		return (1);
 	wp += builtin_opt.optind;
 
 	if (*wp == NULL) {
-		for (p = sigtraps, i = NSIG + 1; --i >= 0; p++)
-			if (p->trap != NULL) {
+		do {
+			if (p->trap) {
 				shf_puts("trap -- ", shl_stdout);
 				print_value_quoted(shl_stdout, p->trap);
 				shprintf(" %s\n", p->name);
 			}
+			++p;
+		} while (--i);
 		return (0);
 	}
 
-	/*
-	 * Use case sensitive lookup for first arg so the
-	 * command 'exit' isn't confused with the pseudo-signal
-	 * 'EXIT'.
-	 */
-	/* get command */
-	s = (gettrap(*wp, false) == NULL) ? *wp++ : NULL;
-	if (s != NULL && s[0] == '-' && s[1] == '\0')
+	if (getn(*wp, &i)) {
+		/* first argument is a signal number, reset them all */
 		s = NULL;
+	} else {
+		/* first argument must be a command, then */
+		s = *wp++;
+		/* reset traps? */
+		if (ksh_isdash(s))
+			s = NULL;
+	}
 
-	/* set/clear traps */
+	/* set/clear the traps */
 	i = 0;
-	while (*wp != NULL)
-		if ((p = gettrap(*wp++, true)) == NULL) {
+	while (*wp)
+		if (!(p = gettrap(*wp++, true, true))) {
 			warningf(true, "%s: %s '%s'", builtin_argv0,
 			    "bad signal", wp[-1]);
-			++i;
+			i = 1;
 		} else
 			settrap(p, s);
 	return (i);
@@ -3412,7 +3428,27 @@ ptest_error(Test_env *te, int ofs, const char *msg)
 # error nonsensical v ulimit
 #endif
 
+struct limits {
+	/* limit resource */
+	int resource;
+	/* multiply by to get rlim_{cur,max} values */
+	unsigned int factor;
+	/* getopts char */
+	char optchar;
+	/* limit name */
+	char name[1];
+};
+
 #define RLIMITS_DEFNS
+#define FN(lname,lid,lfac,lopt)				\
+	static const struct {				\
+		int resource;				\
+		unsigned int factor;			\
+		char optchar;				\
+		char name[sizeof(lname)];		\
+	} rlimits_ ## lid = {				\
+		lid, lfac, lopt, lname			\
+	};
 #include "rlimits.gen"
 
 static void print_ulimit(const struct limits *, int);
@@ -3630,9 +3666,9 @@ c_cat(const char **wp)
 	do {
 		if (*wp) {
 			fn = *wp++;
-			if (fn[0] == '-' && fn[1] == '\0')
+			if (ksh_isdash(fn))
 				fd = STDIN_FILENO;
-			else if ((fd = open(fn, O_RDONLY | O_BINARY)) < 0) {
+			else if ((fd = binopen2(fn, O_RDONLY)) < 0) {
 				eno = errno;
 				bi_errorf("%s: %s", fn, cstrerror(eno));
 				rv = 1;
