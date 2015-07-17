@@ -23,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/expr.c,v 1.76.2.1 2015/01/25 15:44:05 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/expr.c,v 1.77 2014/12/15 23:26:36 tg Exp $");
 
 /* the order of these enums is constrained by the order of opinfo[] */
 enum token {

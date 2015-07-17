@@ -1,4 +1,4 @@
-/*	$OpenBSD: var.c,v 1.38 2013/12/20 17:53:09 zhuk Exp $	*/
+/*	$OpenBSD: var.c,v 1.41 2015/04/17 17:20:41 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
@@ -28,7 +28,7 @@
 #include <sys/sysctl.h>
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/var.c,v 1.183.2.4 2015/04/19 19:18:23 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/var.c,v 1.193 2015/07/10 19:36:38 tg Exp $");
 
 /*-
  * Variables
@@ -510,7 +510,7 @@ getint(struct tbl *vp, mksh_ari_u *nump, bool arith)
 	}
 
 	if (c == '0' && arith) {
-		if ((s[0] | 0x20) == 'x') {
+		if (ksh_eq(s[0], 'X', 'x')) {
 			/* interpret as hexadecimal */
 			base = 16;
 			++s;
@@ -547,19 +547,19 @@ getint(struct tbl *vp, mksh_ari_u *nump, bool arith)
 				nump->u = (mksh_uari_t)wc;
 				return (1);
 			} else if (base > 36)
-				return (-1);
+				base = 10;
 			num = 0;
 			have_base = true;
 			continue;
 		}
 		if (ksh_isdigit(c))
-			c -= '0';
-		else {
-			c |= 0x20;
-			if (!ksh_islower(c))
-				return (-1);
-			c -= 'a' - 10;
-		}
+			c = ksh_numdig(c);
+		else if (ksh_isupper(c))
+			c = ksh_numuc(c) + 10;
+		else if (ksh_islower(c))
+			c = ksh_numlc(c) + 10;
+		else
+			return (-1);
 		if (c >= base)
 			return (-1);
 		/* handle overflow as truncation */
@@ -1281,7 +1281,7 @@ setspec(struct tbl *vp)
 
 			s = str_val(vp);
 			/* LINTED use of access */
-			if (s[0] == '/' && access(s, W_OK|X_OK) == 0 &&
+			if (mksh_abspath(s) && access(s, W_OK|X_OK) == 0 &&
 			    stat(s, &statb) == 0 && S_ISDIR(statb.st_mode))
 				strdupx(tmpdir, s, APERM);
 		}

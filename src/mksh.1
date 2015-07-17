@@ -1,5 +1,5 @@
-.\" $MirOS: src/bin/mksh/mksh.1,v 1.344.2.5 2015/04/12 22:32:30 tg Exp $
-.\" $OpenBSD: ksh.1,v 1.159 2015/03/25 12:10:52 jca Exp $
+.\" $MirOS: src/bin/mksh/mksh.1,v 1.377 2015/07/10 19:35:39 tg Exp $
+.\" $OpenBSD: ksh.1,v 1.160 2015/07/04 13:27:04 feinerer Exp $
 .\"-
 .\" Copyright © 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
 .\"		2010, 2011, 2012, 2013, 2014, 2015
@@ -74,7 +74,7 @@
 .\" with -mandoc, it might implement .Mx itself, but we want to
 .\" use our own definition. And .Dd must come *first*, always.
 .\"
-.Dd $Mdocdate: April 12 2015 $
+.Dd $Mdocdate: July 10 2015 $
 .\"
 .\" Check which macro package we use, and do other -mdoc setup.
 .\"
@@ -476,7 +476,7 @@ and
 .Ql }
 delimit
 .Xr csh 1 Ns -style
-alterations (see
+alternations (see
 .Sx Brace expansion
 below);
 and finally,
@@ -1120,19 +1120,19 @@ also by newline) may be one same parse tree.
 .Pp
 The following command aliases are defined automatically by the shell:
 .Bd -literal -offset indent
-autoload=\*(aqtypeset \-fu\*(aq
-functions=\*(aqtypeset \-f\*(aq
-hash=\*(aqalias \-t\*(aq
-history=\*(aqfc \-l\*(aq
-integer=\*(aqtypeset \-i\*(aq
-local=typeset
-login=\*(aqexec login\*(aq
-nameref=\*(aqtypeset \-n\*(aq
+autoload=\*(aq\etypeset \-fu\*(aq
+functions=\*(aq\etypeset \-f\*(aq
+hash=\*(aq\ebuiltin alias \-t\*(aq
+history=\*(aq\ebuiltin fc \-l\*(aq
+integer=\*(aq\etypeset \-i\*(aq
+local=\*(aq\etypeset\*(aq
+login=\*(aq\eexec login\*(aq
+nameref=\*(aq\etypeset \-n\*(aq
 nohup=\*(aqnohup \*(aq
-r=\*(aqfc \-e \-\*(aq
-source=\*(aqPATH=$PATH:. command .\*(aq
-stop=\*(aqkill \-STOP\*(aq
-type=\*(aqwhence \-v\*(aq
+r=\*(aq\ebuiltin fc \-e \-\*(aq
+source=\*(aqPATH=$PATH:. \ecommand .\*(aq
+stop=\*(aq\ekill \-STOP\*(aq
+type=\*(aq\ebuiltin whence \-v\*(aq
 .Ed
 .Pp
 Tracked aliases allow the shell to remember where it found a particular
@@ -1143,16 +1143,16 @@ The next
 time the command is executed, the shell checks the saved path to see that it
 is still valid, and if so, avoids repeating the path search.
 Tracked aliases can be listed and created using
-.Ic alias \-t .
+.Ic alias Fl t .
 Note that changing the
 .Ev PATH
 parameter clears the saved paths for all tracked aliases.
 If the
 .Ic trackall
 option is set (i.e.\&
-.Ic set \-o Ic trackall
+.Ic set Fl o Ic trackall
 or
-.Ic set \-h ) ,
+.Ic set Fl h ) ,
 the shell tracks all commands.
 This option is set automatically for non-interactive shells.
 For interactive shells, only the following commands are
@@ -1213,7 +1213,7 @@ share their I/O with the parent; instead, they evaluate to whatever
 the, initially empty, expression-local variable
 .Ev REPLY
 is set to within the
-.Ar command Ns No s .
+.Ar command Ns s .
 .Pp
 If a substitution appears outside of double quotes, the results of the
 substitution are generally subject to word or field splitting according to
@@ -1426,7 +1426,7 @@ loops set parameters as well as the
 .Ic getopts ,
 .Ic read ,
 and
-.Ic set \-A
+.Ic set Fl A
 commands.
 Lastly, parameters can be assigned values using assignment operators
 inside arithmetic expressions (see
@@ -1538,7 +1538,9 @@ is not needed, it is not evaluated.
 .Pp
 The following forms of parameter substitution can also be used (if
 .Ar name
-is an array, its element #0 will be substituted in a scalar context):
+is an array, the element with the key
+.Dq 0
+will be substituted in scalar context):
 .Pp
 .Bl -tag -width Ds -compact
 .It Pf ${# Ns Ar name Ns \&}
@@ -1628,7 +1630,7 @@ Cannot be applied to a vector.
 .Pf // Ar pattern / Ar string No }
 .Xc
 .Sm on
-Like ${..#..} substitution, but it replaces the longest match of
+Similar to ${..##..} substitution, but it replaces the longest match of
 .Ar pattern ,
 anchored anywhere in the value, with
 .Ar string .
@@ -1639,17 +1641,17 @@ begins with
 it is anchored at the beginning of the value; if it begins with
 .Ql % ,
 it is anchored at the end.
-Patterns that are empty or consist only of wildcards are invalid.
-A single
+Empty patterns cause no replacement to happen.
+A single leading
 .Ql /
-replaces the first occurence of the search
-.Ar pattern ,
-and two of them replace all occurences.
-If
+or use of a pattern that matches the empty string causes the
+replacement to happen only once; two leading slashes cause
+all occurrences of matches in the value to be replaced.
+If the trailing
 .Pf / Ar string
-is omitted, the
+is omitted, any matches of
 .Ar pattern
-is replaced by the empty string, i.e. deleted.
+are replaced by the empty string, i.e. deleted.
 Cannot be applied to a vector.
 Inefficiently implemented, may be slow.
 .Pp
@@ -1817,9 +1819,9 @@ is non-zero and sane enough (minimum is 12x3); similar for
 .Ev LINES .
 This parameter is used by the interactive line editing modes, and by the
 .Ic select ,
-.Ic set \-o ,
+.Ic set Fl o ,
 and
-.Ic kill \-l
+.Ic kill Fl l
 commands to format information columns.
 Importing from the environment or unsetting this parameter removes the
 binding to the actual terminal size in favour of the provided value.
@@ -1857,7 +1859,8 @@ below for more information.
 .It Ev HISTFILE
 The name of the file used to store command history.
 When assigned to or unset, the file is opened, history is truncated
-then loaded from the file; subsequent new lines are appended.
+then loaded from the file; subsequent new commands (possibly consisting
+of several lines) are appended once they successfully compiled.
 Also, several invocations of the shell will share history if their
 .Ev HISTFILE
 parameters all point to the same file.
@@ -2010,7 +2013,7 @@ You can tell the shell not to count certain
 sequences (such as escape codes) by prefixing your prompt with a
 character (such as Ctrl-A) followed by a carriage return and then delimiting
 the escape codes with this character.
-Any occurences of that character in the prompt are not printed.
+Any occurrences of that character in the prompt are not printed.
 By the way, don't blame me for
 this hack; it's derived from the original
 .Xr ksh88 1 ,
@@ -2140,10 +2143,10 @@ login names are also delimited by colons.
 .Pp
 The home directory of previously expanded login names are cached and re-used.
 The
-.Ic alias \-d
+.Ic alias Fl d
 command may be used to list, change, and add to this cache (e.g.\&
 .Ic alias \-d fac=/usr/local/facilities; cd \*(TIfac/bin ) .
-.Ss Brace expansion (alteration)
+.Ss Brace expansion (alternation)
 Brace expressions take the following form:
 .Bd -unfilled -offset indent
 .Sm off
@@ -2743,9 +2746,9 @@ The non-result argument is not evaluated.
 A co-process (which is a pipeline created with the
 .Sq \*(Ba&
 operator) is an asynchronous process that the shell can both write to (using
-.Ic print \-p )
+.Ic print Fl p )
 and read from (using
-.Ic read \-p ) .
+.Ic read Fl p ) .
 The input and output of the co-process can also be manipulated using
 .Ic \*(Gt&p
 and
@@ -2783,13 +2786,13 @@ different from the original Korn shell which closes its copy of the write
 portion of the co-process output when the most recently started co-process
 (instead of when all sharing co-processes) exits.
 .It
-.Ic print \-p
+.Ic print Fl p
 will ignore
 .Dv SIGPIPE
 signals during writes if the signal is not being trapped or ignored; the same
 is true if the co-process input has been duplicated to another file descriptor
 and
-.Ic print \-u Ns Ar n
+.Ic print Fl u Ns Ar n
 is used.
 .El
 .Ss Functions
@@ -2818,11 +2821,11 @@ An existing function may be deleted using
 A list of functions can be obtained using
 .Ic typeset +f
 and the function definitions can be listed using
-.Ic typeset \-f .
+.Ic typeset Fl f .
 The
 .Ic autoload
 command (which is an alias for
-.Ic typeset \-fu )
+.Ic typeset Fl fu )
 may be used to create undefined functions: when an undefined function is
 executed, the shell searches the path specified in the
 .Ev FPATH
@@ -2843,9 +2846,9 @@ Functions can have two attributes,
 and
 .Dq export ,
 which can be set with
-.Ic typeset \-ft
+.Ic typeset Fl ft
 and
-.Ic typeset \-fx ,
+.Ic typeset Fl fx ,
 respectively.
 When a traced function is executed, the shell's
 .Ic xtrace
@@ -2904,9 +2907,9 @@ inside a function interferes with using
 .Ic getopts
 outside the function).
 .It
-Bourne-style function definitions take precedence over alias dereferences
-and remove alias definitions upon encounter, while aliases take precedence
-over Korn-style functions.
+Shell options
+.Pq Ic set Fl o
+have local scope, i.e. changes inside a function are reset upon its exit.
 .El
 .Pp
 In the future, the following differences may also be added:
@@ -2920,10 +2923,6 @@ trapped) will have their default effect in a function.
 .It
 The EXIT trap, if set in a function, will be executed after the function
 returns.
-.It
-Shell options
-.Pq Ic set Fl o
-have local scope, i.e. changes inside a function are reset upon its exit.
 .El
 .Ss Command execution
 After evaluation of command-line arguments, redirections, and parameter
@@ -3162,15 +3161,13 @@ If a
 is a single dash
 .Pq Sq -
 or absent, read from standard input.
-Unless compiled with
-.Dv MKSH_NO_EXTERNAL_CAT ,
-if any options are given, an external
-.Xr cat 1
-utility is invoked instead if called from the shell.
 For direct builtin calls, the
 .Tn POSIX
 .Fl u
 option is supported as a no-op.
+For calls from shell, if any options are given, an external
+.Xr cat 1
+utility is preferred over the builtin.
 .Pp
 .It Xo
 .Ic cd
@@ -3298,9 +3295,9 @@ option is given, instead of executing
 .Ar cmd ,
 information about what would be executed is given (and the same is done for
 .Ar arg ... ) .
-For special and regular built-in commands and functions, their names are simply
-printed; for aliases, a command that defines them is printed; and for commands
-found by searching the
+For builtins, functions and keywords, their names are simply printed;
+for aliases, a command that defines them is printed;
+for utilities found by searching the
 .Ev PATH
 parameter, the full path of the command is printed.
 If no command is found
@@ -3694,6 +3691,9 @@ and
 See
 .Xr mknod 8
 for further information.
+This is not normally part of
+.Nm mksh ;
+however, distributors may have added this as builtin as a speed hack.
 .Pp
 .It Xo
 .Ic print
@@ -3754,8 +3754,9 @@ Approximately the same as the
 .Xr printf 1 ,
 utility, except it uses the same
 .Sx Backslash expansion
-and I/O code and does hot handle floating point as the rest of
+and I/O code and does not handle floating point as the rest of
 .Nm mksh .
+An external utility is preferred over the builtin.
 This is not normally part of
 .Nm mksh ;
 however, distributors may have added this as builtin as a speed hack.
@@ -3834,7 +3835,8 @@ if empty, instead of the ASCII newline character as input line delimiter.
 .It Fl N Ar z
 Instead of reading till end-of-line, read exactly
 .Ar z
-bytes; less if EOF or a timeout occurs.
+bytes.
+If EOF or a timeout occurs, a partial read is returned with exit status 1.
 .It Fl n Ar z
 Instead of reading till end-of-line, read up to
 .Ar z
@@ -3853,6 +3855,9 @@ The argument must immediately follow the option character.
 Interrupt reading after
 .Ar n
 seconds (specified as positive decimal value with an optional fractional part).
+The exit status of
+.Nm read
+is 1 if the timeout occurred, but partial reads may still be returned.
 .It Fl r
 Normally, the ASCII backslash character escapes the special
 meaning of the following character and is stripped from the input;
@@ -3899,8 +3904,8 @@ option, use of the
 .Fl r
 option might be prudent; the same applies for:
 .Bd -literal -offset indent
-find . \-type f \-print0 \*(Ba \e
-    while IFS= read \-d \*(aq\*(aq \-r filename; do
+find . \-type f \-print0 \*(Ba& \e
+    while IFS= read \-d \*(aq\*(aq \-pr filename; do
 	print \-r \-\- "found \*(Lt${filename#./}\*(Gt"
 done
 .Ed
@@ -4040,23 +4045,6 @@ and also supported by
 .Nm ksh93
 is:
 .Ic foo=(a b c); foo+=(d e)
-.Pp
-Another
-.At
-.Nm ksh93
-and
-.Tn GNU
-.Nm bash
-extension allows specifying the indices used for
-.Ar arg ...
-.Pq from the above example, Ic a b c
-like this:
-.Ic set \-A foo \-\- [0]=a [1]=b [2]=c
-or
-.Ic foo=([0]=a [1]=b [2]=c)
-which can also be written
-.Ic foo=([0]=a b c)
-because indices are incremented automatically.
 .It Fl a \*(Ba Fl o Ic allexport
 All new parameters are created with the export attribute.
 .It Fl b \*(Ba Fl o Ic notify
@@ -4652,54 +4640,60 @@ The format of the output is:
 0m0.00s 0m0.00s
 .Ed
 .Pp
+.It Ic trap Ar n Op Ar signal ...
+If the first operand is a decimal unsigned integer, this resets all
+specified signals to the default action, i.e. is the same as calling
+.Ic trap
+with a minus sign
+.Pq Sq \-
+as
+.Ar handler ,
+followed by the arguments
+.Pq Ar n Op Ar signal ... ,
+all of which are treated as signals.
+.Pp
 .It Ic trap Op Ar handler signal ...
-Sets a trap handler that is to be executed when any of the specified signals are
-received.
+Sets a trap handler that is to be executed when any of the specified
+.Ar signal Ns s
+are received.
 .Ar handler
-is either a
-.Dv NULL
-string, indicating the signals are to be ignored, a minus sign
+is either an empty string, indicating the signals are to be ignored,
+a minus sign
 .Pq Sq \- ,
-indicating that the default action is to be taken for the signals (see
-.Xr signal 3 ) ,
-or a string containing shell commands to be evaluated and executed at the first
-opportunity (i.e. when the current command completes, or before printing the
-next
+indicating that the default action is to be taken for the signals
+.Pq see Xr signal 3 ,
+or a string containing shell commands to be executed at the first opportunity
+(i.e. when the current command completes, or before printing the next
 .Ev PS1
 prompt) after receipt of one of the signals.
 .Ar signal
-is the name of a signal (e.g.\&
-.Dv PIPE
-or
-.Dv ALRM )
+is the name of a signal
+.Pq e.g.\& Dv PIPE or Dv ALRM
 or the number of the signal (see the
-.Ic kill \-l
+.Ic kill Fl l
 command above).
 .Pp
 There are two special signals:
 .Dv EXIT
-(also known as 0) which is executed when the shell is about to exit, and
+.Pq also known as 0 ,
+which is executed when the shell is about to exit, and
 .Dv ERR ,
-which is executed after an error occurs (an error is something that would cause
-the shell to exit if the
-.Fl e
+which is executed after an error occurs; an error is something
+that would cause the shell to exit if the
+.Ic set Fl e
 or
-.Ic errexit
-option were set \*(en see the
-.Ic set
-command above).
+.Ic set Fl o Ic errexit
+option were set.
 .Dv EXIT
 handlers are executed in the environment of the last executed command.
-Note
-that for non-interactive shells, the trap handler cannot be changed for signals
-that were ignored when the shell started.
 .Pp
-With no arguments,
+Note that, for non-interactive shells, the trap handler cannot be changed
+for signals that were ignored when the shell started.
+.Pp
+With no arguments, the current state of the traps that have been set since
+the shell started is shown as a series of
 .Ic trap
-lists, as a series of
-.Ic trap
-commands, the current state of the traps that have been set since the shell
-started.
+commands.
 Note that the output of
 .Ic trap
 cannot be usefully piped to another process (an artifact of the fact that
@@ -5109,7 +5103,7 @@ The exit status of
 .Ic wait
 is that of the last specified job; if the last job is killed by a signal, the
 exit status is 128 + the number of the signal (see
-.Ic kill \-l Ar exit-status
+.Ic kill Fl l Ar exit-status
 above); if the last specified job can't be found (because it never existed, or
 had already finished), the exit status of
 .Ic wait
@@ -5180,9 +5174,9 @@ using the
 .Ic jobs
 commands.
 If job control is fully enabled (using
-.Ic set \-m
+.Ic set Fl m
 or
-.Ic set \-o monitor ) ,
+.Ic set Fl o Ic monitor ) ,
 as it is for interactive shells, the processes of a job are placed in their
 own process group.
 Foreground jobs can be stopped by typing the suspend
@@ -5277,7 +5271,7 @@ The job was stopped by the indicated
 .Dv SIGTSTP ) .
 .It Ar signal-description Op Dq core dumped
 The job was killed by a signal (e.g. memory fault, hangup); use
-.Ic kill \-l
+.Ic kill Fl l
 for a list of signal descriptions.
 The
 .Dq core dumped
@@ -5404,7 +5398,7 @@ Simply causes the character to appear as literal input.
 Most ordinary characters are bound to this.
 .It Xo backward\-char:
 .Op Ar n
-.No \*(haB , \*(haXD , ANSI-CurLeft
+.No \*(haB , \*(haXD , ANSI-CurLeft , PC-CurLeft
 .Xc
 Moves the cursor backward
 .Ar n
@@ -5421,7 +5415,7 @@ and dollar sign
 characters.
 .It beginning\-of\-history: \*(ha[\*(Lt
 Moves to the beginning of the history.
-.It beginning\-of\-line: \*(haA, ANSI-Home
+.It beginning\-of\-line: \*(haA, ANSI-Home, PC-Home
 Moves the cursor to the beginning of the edited input line.
 .It Xo capitalise\-word:
 .Op Ar n
@@ -5477,7 +5471,7 @@ Deletes
 characters before the cursor.
 .It Xo delete\-char\-forward:
 .Op Ar n
-.No ANSI-Del
+.No ANSI-Del , PC-Del
 .Xc
 Deletes
 .Ar n
@@ -5498,7 +5492,7 @@ Deletes characters after the cursor up to the end of
 words.
 .It Xo down\-history:
 .Op Ar n
-.No \*(haN , \*(haXB , ANSI-CurDown
+.No \*(haN , \*(haXB , ANSI-CurDown , PC-CurDown
 .Xc
 Scrolls the history buffer forward
 .Ar n
@@ -5530,7 +5524,7 @@ The actual command executed is
 .Ic fc \-e ${VISUAL:\-${EDITOR:\-vi}} Ar n .
 .It end\-of\-history: \*(ha[\*(Gt
 Moves to the end of the history.
-.It end\-of\-line: \*(haE, ANSI-End
+.It end\-of\-line: \*(haE, ANSI-End, PC-End
 Moves the cursor to the end of the input line.
 .It eot: \*(ha_
 Acts as an end-of-file; this is useful because edit-mode input disables
@@ -5555,7 +5549,7 @@ globbing on the word.
 If no files match the pattern, the bell is rung.
 .It Xo forward\-char:
 .Op Ar n
-.No \*(haF , \*(haXC , ANSI-CurRight
+.No \*(haF , \*(haXC , ANSI-CurRight , PC-CurRight
 .Xc
 Moves the cursor forward
 .Ar n
@@ -5669,12 +5663,12 @@ commands continue searching backward to the next previous occurrence of the
 pattern.
 The history buffer retains only a finite number of lines; the oldest
 are discarded as necessary.
-.It search\-history\-up: ANSI-PgUp
+.It search\-history\-up: ANSI-PgUp, PC-PgUp
 Search backwards through the history buffer for commands whose beginning match
 the portion of the input line before the cursor.
 When used on an empty line, this has the same effect as
 .Ic up\-history .
-.It search\-history\-down: ANSI-PgDn
+.It search\-history\-down: ANSI-PgDn, PC-PgDn
 Search forwards through the history buffer for commands whose beginning match
 the portion of the input line before the cursor.
 When used on an empty line, this has the same effect as
@@ -5694,7 +5688,7 @@ exchanges the previous and current characters and moves the cursor one
 character to the right.
 .It Xo up\-history:
 .Op Ar n
-.No \*(haP , \*(haXA , ANSI-CurUp
+.No \*(haP , \*(haXA , ANSI-CurUp , PC-CurUp
 .Xc
 Scrolls the history buffer backward
 .Ar n
@@ -5806,7 +5800,7 @@ Puts the editor in command mode (see below).
 Optional file name and command completion (see
 .Ic \*(haF
 above), enabled with
-.Ic set \-o vi\-tabcomplete .
+.Ic set Fl o Ic vi\-tabcomplete .
 .El
 .Pp
 In command mode, each character is interpreted as a command.
@@ -5919,7 +5913,7 @@ option is set, while
 is only recognised if the
 .Ic vi\-esccomplete
 option is set (see
-.Ic set \-o ) .
+.Ic set Fl o ) .
 If
 .Ar n
 is specified, the
@@ -6122,7 +6116,7 @@ Search for the
 .Ar n Ns th
 occurrence of the last search string;
 the direction of the search is the opposite of the last search.
-.It Ar ANSI-CurUp
+.It Ar ANSI-CurUp , PC-PgUp
 Take the characters from the beginning of the line to the current
 cursor position as search string and do a backwards history search
 for lines beginning with this string; keep the cursor position.
@@ -6273,6 +6267,8 @@ times.
 Undo the last edit command.
 .It U
 Undo all changes that have been made to the current line.
+.It PC Home, End, Del, and cursor keys
+They move as expected, both in insert and command mode.
 .It Ar intr No and Ar quit
 The interrupt and quit terminal characters cause the current line to be
 deleted and a new prompt to be printed.
@@ -6445,9 +6441,6 @@ The complete legalese is at:
 .\"
 .Sh CAVEATS
 .Nm
-only supports the Unicode BMP (Basic Multilingual Plane).
-.Pp
-.Nm
 has a different scope model from
 .At
 .Nm ksh ,
@@ -6479,7 +6472,7 @@ delete all files on your system, as it's Undefined Behaviour.
 provides a consistent, clear interface normally.
 This may deviate from POSIX in optional or opinionated places, such
 as whether leading-digit-zero numbers should be interpreted as octal.
-.Ic set \-o posix
+.Ic set Fl o Ic posix
 will cause the shell (either
 .Nm mksh
 or
@@ -6492,8 +6485,20 @@ For the purpose of
 supports only the
 .Dq C
 locale.
-For users of UTF-8 locales, the following sh code makes the shell
-match the locale:
+.Nm mksh Ns 's
+.Ic utf8\-mode
+only supports the Unicode BMP (Basic Multilingual Plane) and maps
+raw octets into the U+EF80..U+EFFF wide character range; compare
+.Sx Arithmetic expressions .
+The following
+.Tn POSIX
+.Nm sh
+code toggles the
+.Ic utf8\-mode
+option dependent on the current
+.Tn POSIX
+locale for mksh to allow using the UTF-8 mode, within the constraints
+outlined above, in code portable across various shell implementations:
 .Bd -literal -offset indent
 case ${KSH_VERSION:\-} in
 *MIRBSD\ KSH*\*(Ba*LEGACY\ KSH*)
@@ -6526,7 +6531,7 @@ for the in-memory portion of the history is slow, should use
 .Xr memmove 3 .
 .Pp
 This document attempts to describe
-.Nm mksh\ R50e
+.Nm mksh\ R51
 and up,
 .\" with vendor patches from insert-your-name-here,
 compiled without any options impacting functionality, such as
@@ -6534,9 +6539,9 @@ compiled without any options impacting functionality, such as
 when not called as
 .Pa /bin/sh
 which, on some systems only, enables
-.Ic set \-o posix
+.Ic set Fl o Ic posix
 or
-.Ic set \-o sh
+.Ic set Fl o Ic sh
 automatically (whose behaviour differs across targets),
 for an operating environment supporting all of its advanced needs.
 .Pp
