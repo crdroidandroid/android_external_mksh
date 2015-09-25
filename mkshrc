@@ -55,7 +55,3 @@ function hd {
 		(( hv == 2147483647 )) || print -r -- "$dasc|"
 	fi; }
 }
-
-function setenv {
-	eval export "\"$1\""'="$2"'
-}
