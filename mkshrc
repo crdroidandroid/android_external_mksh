@@ -59,12 +59,3 @@ function hd {
 function setenv {
 	eval export "\"$1\""'="$2"'
 }
-
-for p in ~/bin; do
-	[[ -d $p/. ]] || continue
-	[[ :$PATH: = *:$p:* ]] || PATH=$p:$PATH
-done
-
-unset p
-
-: place customisations above this line
