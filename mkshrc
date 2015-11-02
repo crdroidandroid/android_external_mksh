@@ -6,15 +6,11 @@
 #
 # Support: https://launchpad.net/mksh
 
-: ${HOME:=/data}
 : ${HOSTNAME:=$(getprop ro.product.device)}
 : ${HOSTNAME:=android}
-: ${MKSH:=/system/bin/sh}
-: ${SHELL:=$MKSH}
 : ${TERM:=xterm}
 : ${TMPDIR:=/data/local/tmp}
-: ${USER:=$(id -un)}
-export HOME HOSTNAME MKSH SHELL TERM TMPDIR USER
+export HOSTNAME TERM TMPDIR
 
 if (( USER_ID )); then PS1='$'; else PS1='#'; fi
 PS4='[$EPOCHREALTIME] '; PS1='${|
@@ -23,4 +19,4 @@ PS4='[$EPOCHREALTIME] '; PS1='${|
 	(( e )) && REPLY+="$e|"
 
 	return $e
-}$USER@$HOSTNAME:${PWD:-?} '"$PS1 "
+}$HOSTNAME:${PWD:-?} '"$PS1 "
