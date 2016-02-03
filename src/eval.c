@@ -2,8 +2,8 @@
 
 /*-
  * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
- *		 2011, 2012, 2013, 2014, 2015
- *	Thorsten Glaser <tg@mirbsd.org>
+ *		 2011, 2012, 2013, 2014, 2015, 2016
+ *	mirabilos <m@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
  * are retained or reproduced in an accompanying document, permission
@@ -23,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/eval.c,v 1.170 2015/07/06 17:45:33 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/eval.c,v 1.180 2016/01/19 23:12:12 tg Exp $");
 
 /*
  * string expansion
@@ -437,8 +437,6 @@ expand(
 						beg = wdcopy(sp, ATEMP);
 						mid = beg + (wdscan(sp, ADELIM) - sp);
 						stg = beg + (wdscan(sp, CSUBST) - sp);
-						if (mid >= stg)
-							goto unwind_substsyn;
 						mid[-2] = EOS;
 						if (mid[-1] == /*{*/'}') {
 							sp += mid - beg - 1;
@@ -446,9 +444,8 @@ expand(
 						} else {
 							end = mid +
 							    (wdscan(mid, ADELIM) - mid);
-							if (end >= stg ||
-							    /* more than max delimiters */
-							    end[-1] != /*{*/ '}')
+							if (end[-1] != /*{*/ '}')
+								/* more than max delimiters */
 								goto unwind_substsyn;
 							end[-2] = EOS;
 							sp += end - beg - 1;
@@ -483,56 +480,37 @@ expand(
 					case '/': {
 						char *s, *p, *d, *sbeg, *end;
 						char *pat, *rrep;
-						char *tpat0, *tpat1, *tpat2;
+						char fpat = 0, *tpat1, *tpat2;
 
 						s = wdcopy(sp, ATEMP);
 						p = s + (wdscan(sp, ADELIM) - sp);
 						d = s + (wdscan(sp, CSUBST) - sp);
-						if (p >= d)
-							goto unwind_substsyn;
 						p[-2] = EOS;
 						if (p[-1] == /*{*/'}')
 							d = NULL;
 						else
 							d[-2] = EOS;
 						sp += (d ? d : p) - s - 1;
-						tpat0 = wdstrip(s,
-						    WDS_KEEPQ | WDS_MAGIC);
-						pat = substitute(tpat0, 0);
-						if (d) {
-							d = wdstrip(p, WDS_KEEPQ);
-							rrep = substitute(d, 0);
-							afree(d, ATEMP);
-						} else
-							rrep = null;
+						if (!(stype & 0x80) &&
+						    s[0] == CHAR &&
+						    (s[1] == '#' || s[1] == '%'))
+							fpat = s[1];
+						pat = evalstr(s + (fpat ? 2 : 0),
+						    DOTILDE | DOSCALAR | DOPAT);
+						rrep = d ? evalstr(p,
+						    DOTILDE | DOSCALAR) : null;
 						afree(s, ATEMP);
-						s = d = pat;
-						while (*s)
-							if (*s != '\\' ||
-							    s[1] == '%' ||
-							    s[1] == '#' ||
-							    s[1] == '\0' ||
-				/* XXX really? */	    s[1] == '\\' ||
-							    s[1] == '/')
-								*d++ = *s++;
-							else
-								s++;
-						*d = '\0';
-						afree(tpat0, ATEMP);
 
 						/* check for special cases */
-						switch (*pat) {
-						case '#':
-						case '%':
-							tpat0 = pat + 1;
-							break;
-						case '\0':
-							/* empty pattern, reject */
+						if (!*pat && !fpat) {
+							/*
+							 * empty unanchored
+							 * pattern => reject
+							 */
 							goto no_repl;
-						default:
-							tpat0 = pat;
 						}
-						if (gmatchx(null, tpat0, false)) {
+						if ((stype & 0x80) &&
+						    gmatchx(null, pat, false)) {
 							/*
 							 * pattern matches empty
 							 * string => don't loop
@@ -545,15 +523,14 @@ expand(
 						sbeg = s;
 
 						/* first see if we have any match at all */
-						tpat0 = pat;
-						if (*pat == '#') {
+						if (fpat == '#') {
 							/* anchor at the beginning */
-							tpat1 = shf_smprintf("%s%c*", ++tpat0, MAGIC);
+							tpat1 = shf_smprintf("%s%c*", pat, MAGIC);
 							tpat2 = tpat1;
-						} else if (*pat == '%') {
+						} else if (fpat == '%') {
 							/* anchor at the end */
-							tpat1 = shf_smprintf("%c*%s", MAGIC, ++tpat0);
-							tpat2 = tpat0;
+							tpat1 = shf_smprintf("%c*%s", MAGIC, pat);
+							tpat2 = pat;
 						} else {
 							/* float */
 							tpat1 = shf_smprintf("%c*%s%c*", MAGIC, pat, MAGIC);
@@ -568,7 +545,7 @@ expand(
 							goto end_repl;
 						end = strnul(s);
 						/* now anchor the beginning of the match */
-						if (*pat != '#')
+						if (fpat != '#')
 							while (sbeg <= end) {
 								if (gmatchx(sbeg, tpat2, false))
 									break;
@@ -577,13 +554,13 @@ expand(
 							}
 						/* now anchor the end of the match */
 						p = end;
-						if (*pat != '%')
+						if (fpat != '%')
 							while (p >= sbeg) {
 								bool gotmatch;
 
 								c = *p;
 								*p = '\0';
-								gotmatch = tobool(gmatchx(sbeg, tpat0, false));
+								gotmatch = tobool(gmatchx(sbeg, pat, false));
 								*p = c;
 								if (gotmatch)
 									break;
@@ -608,9 +585,11 @@ expand(
 					    }
 					case '#':
 					case '%':
-						/* ! DOBLANK,DOBRACE,DOTILDE */
+						/* ! DOBLANK,DOBRACE */
 						f = (f & DONTRUNCOMMAND) |
-						    DOPAT | DOTEMP | DOSCALAR;
+						    DOPAT | DOTILDE |
+						    DOTEMP | DOSCALAR;
+						tilde_ok = 1;
 						st->quotew = quote = 0;
 						/*
 						 * Prepend open pattern (so |
@@ -648,6 +627,9 @@ expand(
 						tilde_ok = 1;
 						break;
 					case '?':
+						if (*sp == CSUBST)
+							errorf("%s: parameter null or not set",
+							    st->var->name);
 						f &= ~DOBLANK;
 						f |= DOTEMP;
 						/* FALLTHROUGH */
@@ -743,14 +725,12 @@ expand(
 					st = st->prev;
 					word = quote || (!*x.str && (f & DOSCALAR)) ? IFS_WORD : IFS_IWS;
 					continue;
-				case '?': {
-					char *s = Xrestpos(ds, dp, st->base);
+				case '?':
+					dp = Xrestpos(ds, dp, st->base);
 
 					errorf("%s: %s", st->var->name,
-					    dp == s ?
-					    "parameter null or not set" :
-					    (debunk(s, s, strlen(s) + 1), s));
-				    }
+					    debunk(dp, dp, strlen(dp) + 1));
+					break;
 				case '0':
 				case '/':
 				case 0x100 | '#':
@@ -919,6 +899,8 @@ expand(
 			    (word == IFS_IWS || word == IFS_NWS) &&
 			    !ctype(c, C_IFSWS))) {
  emit_word:
+				if (f & DOHERESTR)
+					*dp++ = '\n';
 				*dp++ = '\0';
 				cp = Xclose(ds, dp);
 				if (fdo & DOBRACE)
@@ -999,9 +981,8 @@ expand(
 					break;
 				case '=':
 					/* Note first unquoted = for ~ */
-					if (!(f & DOTEMP) && !saw_eq &&
-					    (Flag(FBRACEEXPAND) ||
-					    (f & DOASNTILDE))) {
+					if (!(f & DOTEMP) && (!Flag(FPOSIX) ||
+					    (f & DOASNTILDE)) && !saw_eq) {
 						saw_eq = true;
 						tilde_ok = 1;
 					}
@@ -1055,6 +1036,17 @@ expand(
 			word = IFS_WORD;
 		}
 	}
+}
+
+static bool
+hasnonempty(const char **strv)
+{
+	size_t i = 0;
+
+	while (strv[i])
+		if (*strv[i++])
+			return (true);
+	return (false);
 }
 
 /*
@@ -1285,7 +1277,9 @@ varsub(Expand *xp, const char *sp, const char *word,
 	c = stype & 0x7F;
 	/* test the compiler's code generator */
 	if (((stype < 0x100) && (ctype(c, C_SUBOP2) || c == '/' ||
-	    (((stype&0x80) ? *xp->str=='\0' : xp->str==null) ? /* undef? */
+	    (((stype & 0x80) ? *xp->str == '\0' : xp->str == null) &&
+	    (state != XARG || (ifs0 || xp->split ?
+	    (xp->u.strv[0] == NULL) : !hasnonempty(xp->u.strv))) ?
 	    c == '=' || c == '-' || c == '?' : c == '+'))) ||
 	    stype == (0x80 | '0') || stype == (0x100 | '#') ||
 	    stype == (0x100 | 'Q'))
@@ -1330,10 +1324,10 @@ comsub(Expand *xp, const char *cp, int fn MKSH_A_UNUSED)
 		char *name;
 
 		if ((io->ioflag & IOTYPE) != IOREAD)
-			errorf("%s: %s", "funny $() command",
+			errorf("%s: %s", T_funny_command,
 			    snptreef(NULL, 32, "%R", io));
-		shf = shf_open(name = evalstr(io->name, DOTILDE), O_RDONLY, 0,
-			SHF_MAPHI|SHF_CLEXEC);
+		shf = shf_open(name = evalstr(io->ioname, DOTILDE), O_RDONLY,
+			0, SHF_MAPHI | SHF_CLEXEC);
 		if (shf == NULL)
 			warningf(!Flag(FTALKING), "%s: %s %s: %s", name,
 			    "can't open", "$(<...) input", cstrerror(errno));
