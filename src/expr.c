@@ -23,50 +23,16 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/expr.c,v 1.81 2016/01/14 21:17:50 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/expr.c,v 1.88 2016/07/27 00:55:27 tg Exp $");
 
-/* the order of these enums is constrained by the order of opinfo[] */
-enum token {
-	/* some (long) unary operators */
-	O_PLUSPLUS = 0, O_MINUSMINUS,
-	/* binary operators */
-	O_EQ, O_NE,
-	/* assignments are assumed to be in range O_ASN .. O_BORASN */
-	O_ASN, O_TIMESASN, O_DIVASN, O_MODASN, O_PLUSASN, O_MINUSASN,
-#ifndef MKSH_LEGACY_MODE
-	O_ROLASN, O_RORASN,
-#endif
-	O_LSHIFTASN, O_RSHIFTASN, O_BANDASN, O_BXORASN, O_BORASN,
-	/* binary non-assignment operators */
-#ifndef MKSH_LEGACY_MODE
-	O_ROL, O_ROR,
-#endif
-	O_LSHIFT, O_RSHIFT,
-	O_LE, O_GE, O_LT, O_GT,
-	O_LAND,
-	O_LOR,
-	O_TIMES, O_DIV, O_MOD,
-	O_PLUS, O_MINUS,
-	O_BAND,
-	O_BXOR,
-	O_BOR,
-	O_TERN,
-	O_COMMA,
-	/* things after this aren't used as binary operators */
-	/* unary that are not also binaries */
-	O_BNOT, O_LNOT,
-	/* misc */
-	OPEN_PAREN, CLOSE_PAREN, CTERN,
-	/* things that don't appear in the opinfo[] table */
-	VAR, LIT, END, BAD
-};
-#define IS_ASSIGNOP(op)	((int)(op) >= (int)O_ASN && (int)(op) <= (int)O_BORASN)
+#define EXPRTOK_DEFNS
+#include "exprtok.h"
 
 /* precisions; used to be enum prec but we do arithmetics on it */
 #define P_PRIMARY	0	/* VAR, LIT, (), ! ~ ++ -- */
 #define P_MULT		1	/* * / % */
 #define P_ADD		2	/* + - */
-#define P_SHIFT		3	/* <<< >>> << >> */
+#define P_SHIFT		3	/* ^< ^> << >> */
 #define P_RELATION	4	/* < <= > >= */
 #define P_EQUALITY	5	/* == != */
 #define P_BAND		6	/* & */
@@ -75,72 +41,29 @@ enum token {
 #define P_LAND		9	/* && */
 #define P_LOR		10	/* || */
 #define P_TERN		11	/* ?: */
-	/* = += -= *= /= %= <<<= >>>= <<= >>= &= ^= |= */
+	/* = += -= *= /= %= ^<= ^>= <<= >>= &= ^= |= */
 #define P_ASSIGN	12
 #define P_COMMA		13	/* , */
 #define MAX_PREC	P_COMMA
 
-struct opinfo {
-	char name[5];
-	/* name length */
-	uint8_t len;
-	/* precedence: lower is higher */
-	uint8_t prec;
+enum token {
+#define EXPRTOK_ENUM
+#include "exprtok.h"
 };
 
-/*
- * Tokens in this table must be ordered so the longest are first
- * (eg, += before +). If you change something, change the order
- * of enum token too.
- */
-static const struct opinfo opinfo[] = {
-	{ "++",   2, P_PRIMARY },	/* before + */
-	{ "--",   2, P_PRIMARY },	/* before - */
-	{ "==",   2, P_EQUALITY },	/* before = */
-	{ "!=",   2, P_EQUALITY },	/* before ! */
-	{ "=",    1, P_ASSIGN },	/* keep assigns in a block */
-	{ "*=",   2, P_ASSIGN },
-	{ "/=",   2, P_ASSIGN },
-	{ "%=",   2, P_ASSIGN },
-	{ "+=",   2, P_ASSIGN },
-	{ "-=",   2, P_ASSIGN },
-#ifndef MKSH_LEGACY_MODE
-	{ "<<<=", 4, P_ASSIGN },	/* before <<< */
-	{ ">>>=", 4, P_ASSIGN },	/* before >>> */
-#endif
-	{ "<<=",  3, P_ASSIGN },
-	{ ">>=",  3, P_ASSIGN },
-	{ "&=",   2, P_ASSIGN },
-	{ "^=",   2, P_ASSIGN },
-	{ "|=",   2, P_ASSIGN },
-#ifndef MKSH_LEGACY_MODE
-	{ "<<<",  3, P_SHIFT },		/* before << */
-	{ ">>>",  3, P_SHIFT },		/* before >> */
-#endif
-	{ "<<",   2, P_SHIFT },
-	{ ">>",   2, P_SHIFT },
-	{ "<=",   2, P_RELATION },
-	{ ">=",   2, P_RELATION },
-	{ "<",    1, P_RELATION },
-	{ ">",    1, P_RELATION },
-	{ "&&",   2, P_LAND },
-	{ "||",   2, P_LOR },
-	{ "*",    1, P_MULT },
-	{ "/",    1, P_MULT },
-	{ "%",    1, P_MULT },
-	{ "+",    1, P_ADD },
-	{ "-",    1, P_ADD },
-	{ "&",    1, P_BAND },
-	{ "^",    1, P_BXOR },
-	{ "|",    1, P_BOR },
-	{ "?",    1, P_TERN },
-	{ ",",    1, P_COMMA },
-	{ "~",    1, P_PRIMARY },
-	{ "!",    1, P_PRIMARY },
-	{ "(",    1, P_PRIMARY },
-	{ ")",    1, P_PRIMARY },
-	{ ":",    1, P_PRIMARY },
-	{ "",     0, P_PRIMARY }
+static const char opname[][4] = {
+#define EXPRTOK_NAME
+#include "exprtok.h"
+};
+
+static const uint8_t oplen[] = {
+#define EXPRTOK_LEN
+#include "exprtok.h"
+};
+
+static const uint8_t opprec[] = {
+#define EXPRTOK_PREC
+#include "exprtok.h"
 };
 
 typedef struct expr_state {
@@ -227,7 +150,7 @@ v_evaluate(struct tbl *vp, const char *expr, volatile int error_ok,
 	exprtoken(es);
 	if (es->tok == END) {
 		es->tok = LIT;
-		es->val = tempvar();
+		es->val = tempvar("");
 	}
 	v = intvar(es, evalexpr(es, MAX_PREC));
 
@@ -272,35 +195,35 @@ evalerr(Expr_state *es, enum error_type type, const char *str)
 			s = tbuf;
 			break;
 		default:
-			s = opinfo[(int)es->tok].name;
+			s = opname[(int)es->tok];
 		}
-		warningf(true, "%s: %s '%s'", es->expression,
-		    "unexpected", s);
+		warningf(true, Tf_sD_s_qs, es->expression,
+		    Tunexpected, s);
 		break;
 
 	case ET_BADLIT:
-		warningf(true, "%s: %s '%s'", es->expression,
+		warningf(true, Tf_sD_s_qs, es->expression,
 		    "bad number", str);
 		break;
 
 	case ET_RECURSIVE:
-		warningf(true, "%s: %s '%s'", es->expression,
+		warningf(true, Tf_sD_s_qs, es->expression,
 		    "expression recurses on parameter", str);
 		break;
 
 	case ET_LVALUE:
-		warningf(true, "%s: %s %s",
+		warningf(true, Tf_sD_s_s,
 		    es->expression, str, "requires lvalue");
 		break;
 
 	case ET_RDONLY:
-		warningf(true, "%s: %s %s",
+		warningf(true, Tf_sD_s_s,
 		    es->expression, str, "applied to read-only variable");
 		break;
 
 	default: /* keep gcc happy */
 	case ET_STR:
-		warningf(true, "%s: %s", es->expression, str);
+		warningf(true, Tf_sD_s, es->expression, str);
 		break;
 	}
 	unwind(LAEXPR);
@@ -402,7 +325,7 @@ evalexpr(Expr_state *es, unsigned int prec)
 
 	vl = evalexpr(es, prec - 1);
 	while ((int)(op = es->tok) >= (int)O_EQ && (int)op <= (int)O_COMMA &&
-	    opinfo[(int)op].prec == prec) {
+	    opprec[(int)op] == prec) {
 		exprtoken(es);
 		vasn = vl;
 		if (op != O_ASN)
@@ -649,7 +572,7 @@ exprtoken(Expr_state *es)
 			cp += len;
 		}
 		if (es->noassign) {
-			es->val = tempvar();
+			es->val = tempvar("");
 			es->val->flag |= EXPRLVALUE;
 		} else {
 			strndupx(tvar, es->tokp, cp - es->tokp, ATEMP);
@@ -665,7 +588,10 @@ exprtoken(Expr_state *es)
 		goto process_tvar;
 #ifndef MKSH_SMALL
 	} else if (c == '\'') {
-		++cp;
+		if (*++cp == '\0') {
+			es->tok = END;
+			evalerr(es, ET_UNEXPECTED, NULL);
+		}
 		cp += utf_ptradj(cp);
 		if (*cp++ != '\'')
 			evalerr(es, ET_STR,
@@ -684,7 +610,7 @@ exprtoken(Expr_state *es)
 			c = *cp++;
 		strndupx(tvar, es->tokp, --cp - es->tokp, ATEMP);
  process_tvar:
-		es->val = tempvar();
+		es->val = tempvar("");
 		es->val->flag &= ~INTEGER;
 		es->val->type = 0;
 		es->val->val.s = tvar;
@@ -695,11 +621,11 @@ exprtoken(Expr_state *es)
 	} else {
 		int i, n0;
 
-		for (i = 0; (n0 = opinfo[i].name[0]); i++)
-			if (c == n0 && strncmp(cp, opinfo[i].name,
-			    (size_t)opinfo[i].len) == 0) {
+		for (i = 0; (n0 = opname[i][0]); i++)
+			if (c == n0 && strncmp(cp, opname[i],
+			    (size_t)oplen[i]) == 0) {
 				es->tok = (enum token)i;
-				cp += opinfo[i].len;
+				cp += oplen[i];
 				break;
 			}
 		if (!n0)
@@ -713,23 +639,25 @@ assign_check(Expr_state *es, enum token op, struct tbl *vasn)
 {
 	if (es->tok == END || !vasn ||
 	    (vasn->name[0] == '\0' && !(vasn->flag & EXPRLVALUE)))
-		evalerr(es, ET_LVALUE, opinfo[(int)op].name);
+		evalerr(es, ET_LVALUE, opname[(int)op]);
 	else if (vasn->flag & RDONLY)
-		evalerr(es, ET_RDONLY, opinfo[(int)op].name);
+		evalerr(es, ET_RDONLY, opname[(int)op]);
 }
 
 struct tbl *
-tempvar(void)
+tempvar(const char *vname)
 {
 	struct tbl *vp;
+	size_t vsize;
 
-	vp = alloc(sizeof(struct tbl), ATEMP);
+	vsize = strlen(vname) + 1;
+	vp = alloc(offsetof(struct tbl, name[0]) + vsize, ATEMP);
+	memcpy(vp->name, vname, vsize);
 	vp->flag = ISSET|INTEGER;
 	vp->type = 0;
 	vp->areap = ATEMP;
 	vp->ua.hval = 0;
 	vp->val.i = 0;
-	vp->name[0] = '\0';
 	return (vp);
 }
 
@@ -744,7 +672,7 @@ intvar(Expr_state *es, struct tbl *vp)
 	    (vp->flag & (ISSET|INTEGER|EXPRLVALUE)) == (ISSET|INTEGER))
 		return (vp);
 
-	vq = tempvar();
+	vq = tempvar("");
 	if (setint_v(vq, vp, es->arith) == NULL) {
 		if (vp->flag & EXPRINEVAL)
 			evalerr(es, ET_RECURSIVE, vp->name);
@@ -804,15 +732,26 @@ utf_mbswidth(const char *s)
 }
 
 const char *
-utf_skipcols(const char *p, int cols)
+utf_skipcols(const char *p, int cols, int *colp)
 {
 	int c = 0;
+	const char *q;
 
 	while (c < cols) {
-		if (!*p)
-			return (p + cols - c);
+		if (!*p) {
+			/* end of input; special handling for edit.c */
+			if (!colp)
+				return (p + cols - c);
+			*colp = c;
+			return (p);
+		}
 		c += utf_widthadj(p, &p);
 	}
+	if (UTFMODE)
+		while (utf_widthadj(p, &q) == 0)
+			p = q;
+	if (colp)
+		*colp = c;
 	return (p);
 }
 
