@@ -101,13 +101,17 @@ const struct builtin mkshbuiltins[] = {
 	{Talias, c_alias},
 	{"*=break", c_brkcont},
 	{Tgbuiltin, c_builtin},
+#if !defined(__ANDROID__)
 	{Tbcat, c_cat},
+#endif
 	{Tcd, c_cd},
 	/* dash compatibility hack */
 	{"chdir", c_cd},
 	{Tcommand, c_command},
 	{"*=continue", c_brkcont},
+#if !defined(__ANDROID__)
 	{"echo", c_print},
+#endif
 	{"*=eval", c_eval},
 	{"*=exec", c_exec},
 	{"*=exit", c_exitreturn},
@@ -117,14 +121,20 @@ const struct builtin mkshbuiltins[] = {
 	{Tgetopts, c_getopts},
 	{"=global", c_typeset},
 	{Tjobs, c_jobs},
+#if !defined(__ANDROID__)
 	{"kill", c_kill},
+#endif
 	{"let", c_let},
 	{"let]", c_let},
 	{"print", c_print},
+#if !defined(__ANDROID__)
 	{"pwd", c_pwd},
+#endif
 	{Tread, c_read},
 	{Tsgreadonly, c_typeset},
+#if !defined(__ANDROID__)
 	{"!realpath", c_realpath},
+#endif
 	{"~rename", c_rename},
 	{"*=return", c_exitreturn},
 	{Tsgset, c_set},
@@ -138,7 +148,9 @@ const struct builtin mkshbuiltins[] = {
 	{"*=trap", c_trap},
 	{Ttrue, c_true},
 	{Tgtypeset, c_typeset},
+#if !defined(__ANDROID__)
 	{"ulimit", c_ulimit},
+#endif
 	{"umask", c_umask},
 	{Tunalias, c_unalias},
 	{"*=unset", c_unset},
@@ -158,7 +170,9 @@ const struct builtin mkshbuiltins[] = {
 	{"~printf", c_printf},
 #endif
 #if HAVE_SELECT
+# if !defined(__ANDROID__)
 	{"sleep", c_sleep},
+# endif
 #endif
 #ifdef __MirBSD__
 	/* alias to "true" for historical reasons */
