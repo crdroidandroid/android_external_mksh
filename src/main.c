@@ -407,6 +407,12 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 		}
 	}
 
+	/* override default PATH regardless of environment */
+#ifdef MKSH_DEFPATH_OVERRIDE
+	 vp = global(TPATH);
+	 setstr(vp, MKSH_DEFPATH_OVERRIDE, KSH_RETURN_ERROR);
+#endif
+
 	/* for security */
 	typeset("IFS= \t\n", 0, 0, 0, 0);
 
