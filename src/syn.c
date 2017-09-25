@@ -23,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/syn.c,v 1.120 2017/04/06 01:59:57 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/syn.c,v 1.124 2017/05/05 22:53:31 tg Exp $");
 
 struct nesting_state {
 	int start_token;	/* token than began nesting (eg, FOR) */
@@ -91,7 +91,7 @@ yyparse(bool doalias)
 	c = tpeek(0);
 	if (c == 0 && !outtree)
 		outtree = newtp(TEOF);
-	else if (c != '\n' && c != 0)
+	else if (!ctype(c, C_LF | C_NUL))
 		syntaxerr(NULL);
 }
 
@@ -330,7 +330,7 @@ get_command(int cf, int sALIAS)
 					XPput(args, yylval.cp);
 				break;
 
-			case '(' /*)*/:
+			case ord('(' /*)*/):
 				if (XPsize(args) == 0 && XPsize(vars) == 1 &&
 				    is_wdvarassign(yylval.cp)) {
 					char *tcp;
@@ -373,7 +373,7 @@ get_command(int cf, int sALIAS)
 					    XPsize(vars) != 0)
 						syntaxerr(NULL);
 					ACCEPT;
-					musthave(/*(*/')', 0);
+					musthave(/*(*/ ')', 0);
 					t = function_body(XPptrv(args)[0],
 					    sALIAS, false);
 				}
@@ -386,18 +386,18 @@ get_command(int cf, int sALIAS)
  Leave:
 		break;
 
-	case '(': /*)*/ {
+	case ord('(' /*)*/): {
 		int subshell_nesting_type_saved;
  Subshell:
 		subshell_nesting_type_saved = subshell_nesting_type;
-		subshell_nesting_type = ')';
-		t = nested(TPAREN, '(', ')', sALIAS);
+		subshell_nesting_type = ord(')');
+		t = nested(TPAREN, ord('('), ord(')'), sALIAS);
 		subshell_nesting_type = subshell_nesting_type_saved;
 		break;
 	    }
 
-	case '{': /*}*/
-		t = nested(TBRACE, '{', '}', sALIAS);
+	case ord('{' /*}*/):
+		t = nested(TBRACE, ord('{'), ord('}'), sALIAS);
 		break;
 
 	case MDPAREN:
@@ -407,8 +407,8 @@ get_command(int cf, int sALIAS)
 		switch (token(LETEXPR)) {
 		case LWORD:
 			break;
-		case '(': /*)*/
-			c = '(';
+		case ord('(' /*)*/):
+			c = ord('(');
 			goto Subshell;
 		default:
 			syntaxerr(NULL);
@@ -554,8 +554,8 @@ dogroup(int sALIAS)
 	 */
 	if (c == DO)
 		c = DONE;
-	else if (c == '{')
-		c = '}';
+	else if (c == ord('{'))
+		c = ord('}');
 	else
 		syntaxerr(NULL);
 	list = c_list(sALIAS, true);
@@ -610,8 +610,8 @@ caselist(int sALIAS)
 	/* A {...} can be used instead of in...esac for case statements */
 	if (c == IN)
 		c = ESAC;
-	else if (c == '{')
-		c = '}';
+	else if (c == ord('{'))
+		c = ord('}');
 	else
 		syntaxerr(NULL);
 	t = tl = NULL;
@@ -636,17 +636,18 @@ casepart(int endtok, int sALIAS)
 	XPinit(ptns, 16);
 	t = newtp(TPAT);
 	/* no ALIAS here */
-	if (token(CONTIN | KEYWORD) != '(')
+	if (token(CONTIN | KEYWORD) != ord('('))
 		REJECT;
 	do {
 		switch (token(0)) {
 		case LWORD:
 			break;
-		case '}':
+		case ord('}'):
 		case ESAC:
 			if (symbol != endtok) {
 				strdupx(yylval.cp,
-				    symbol == '}' ? Tcbrace : Tesac, ATEMP);
+				    symbol == ord('}') ? Tcbrace : Tesac,
+				    ATEMP);
 				break;
 			}
 			/* FALLTHROUGH */
@@ -658,23 +659,23 @@ casepart(int endtok, int sALIAS)
 	REJECT;
 	XPput(ptns, NULL);
 	t->vars = (char **)XPclose(ptns);
-	musthave(')', 0);
+	musthave(ord(')'), 0);
 
 	t->left = c_list(sALIAS, true);
 
 	/* initialise to default for ;; or omitted */
-	t->u.charflag = ';';
+	t->u.charflag = ord(';');
 	/* SUSv4 requires the ;; except in the last casepart */
 	if ((tpeek(CONTIN|KEYWORD|sALIAS)) != endtok)
 		switch (symbol) {
 		default:
 			syntaxerr(NULL);
 		case BRKEV:
-			t->u.charflag = '|';
+			t->u.charflag = ord('|');
 			if (0)
 				/* FALLTHROUGH */
 		case BRKFT:
-			t->u.charflag = '&';
+			  t->u.charflag = ord('&');
 			/* FALLTHROUGH */
 		case BREAK:
 			/* initialised above, but we need to eat the token */
@@ -697,10 +698,10 @@ function_body(char *name, int sALIAS,
 	 * only allow [a-zA-Z_0-9] but this allows more as old pdkshs
 	 * have allowed more; the following were never allowed:
 	 *	NUL TAB NL SP " $ & ' ( ) ; < = > \ ` |
-	 * C_QUOTE covers all but adds # * ? [ ]
+	 * C_QUOTE|C_SPC covers all but adds # * ? [ ]
 	 */
 	for (p = sname; *p; p++)
-		if (ctype(*p, C_QUOTE))
+		if (ctype(*p, C_QUOTE | C_SPC))
 			yyerror(Tinvname, sname, Tfunction);
 
 	/*
@@ -710,14 +711,14 @@ function_body(char *name, int sALIAS,
 	 * only accepts an open-brace.
 	 */
 	if (ksh_func) {
-		if (tpeek(CONTIN|KEYWORD|sALIAS) == '(' /*)*/) {
+		if (tpeek(CONTIN|KEYWORD|sALIAS) == ord('(' /*)*/)) {
 			/* function foo () { //}*/
 			ACCEPT;
-			musthave(')', 0);
+			musthave(ord(/*(*/ ')'), 0);
 			/* degrade to POSIX function */
 			ksh_func = false;
 		}
-		musthave('{' /*}*/, CONTIN|KEYWORD|sALIAS);
+		musthave(ord('{' /*}*/), CONTIN|KEYWORD|sALIAS);
 		REJECT;
 	}
 
@@ -809,8 +810,8 @@ static const struct tokeninfo {
 	{ "in",		IN,	true },
 	{ Tfunction,	FUNCTION, true },
 	{ Ttime,	TIME,	true },
-	{ "{",		'{',	true },
-	{ Tcbrace,	'}',	true },
+	{ "{",		ord('{'), true },
+	{ Tcbrace,	ord('}'), true },
 	{ "!",		BANG,	true },
 	{ "[[",		DBRACKET, true },
 	/* Lexical tokens (0[EOF], LWORD and REDIR handled specially) */
@@ -822,7 +823,7 @@ static const struct tokeninfo {
 	{ "((",		MDPAREN, false },
 	{ "|&",		COPROC,	false },
 	/* and some special cases... */
-	{ "newline",	'\n',	false },
+	{ "newline",	ord('\n'), false },
 	{ NULL,		0,	false }
 };
 
@@ -997,9 +998,9 @@ dbtestp_isa(Test_env *te, Test_meta meta)
 		ret = (uqword && !strcmp(yylval.cp,
 		    dbtest_tokens[(int)TM_NOT])) ? TO_NONNULL : TO_NONOP;
 	else if (meta == TM_OPAREN)
-		ret = c == '(' /*)*/ ? TO_NONNULL : TO_NONOP;
+		ret = c == ord('(') /*)*/ ? TO_NONNULL : TO_NONOP;
 	else if (meta == TM_CPAREN)
-		ret = c == /*(*/ ')' ? TO_NONNULL : TO_NONOP;
+		ret = c == /*(*/ ord(')') ? TO_NONNULL : TO_NONOP;
 	else if (meta == TM_UNOP || meta == TM_BINOP) {
 		if (meta == TM_BINOP && c == REDIR &&
 		    (yylval.iop->ioflag == IOREAD ||
@@ -1079,7 +1080,7 @@ parse_usec(const char *s, struct timeval *tv)
 
 	tv->tv_sec = 0;
 	/* parse integral part */
-	while (ksh_isdigit(*s)) {
+	while (ctype(*s, C_DIGIT)) {
 		tt.tv_sec = tv->tv_sec * 10 + ksh_numdig(*s++);
 		/*XXX this overflow check maybe UB */
 		if (tt.tv_sec / 10 != tv->tv_sec) {
@@ -1101,14 +1102,14 @@ parse_usec(const char *s, struct timeval *tv)
 
 	/* parse decimal fraction */
 	i = 100000;
-	while (ksh_isdigit(*s)) {
+	while (ctype(*s, C_DIGIT)) {
 		tv->tv_usec += i * ksh_numdig(*s++);
 		if (i == 1)
 			break;
 		i /= 10;
 	}
 	/* check for junk after fractional part */
-	while (ksh_isdigit(*s))
+	while (ctype(*s, C_DIGIT))
 		++s;
 	if (*s) {
 		errno = EINVAL;
@@ -1133,11 +1134,11 @@ yyrecursive(int subtype)
 	int stok, etok;
 
 	if (subtype != COMSUB) {
-		stok = '{';
-		etok = '}';
+		stok = ord('{');
+		etok = ord('}');
 	} else {
-		stok = '(';
-		etok = ')';
+		stok = ord('(');
+		etok = ord(')');
 	}
 
 	ys = alloc(sizeof(struct yyrecursive_state), ATEMP);

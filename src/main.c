@@ -34,7 +34,7 @@
 #include <locale.h>
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/main.c,v 1.332 2017/04/12 16:01:45 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/main.c,v 1.342 2017/04/28 11:13:47 tg Exp $");
 
 extern char **environ;
 
@@ -236,6 +236,11 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 	ssize_t k;
 #endif
 
+#if defined(MKSH_EBCDIC) || defined(MKSH_FAUX_EBCDIC)
+	ebcdic_init();
+#endif
+	set_ifs(TC_IFSWS);
+
 #ifdef __OS2__
 	for (i = 0; i < 3; ++i)
 		if (!isatty(i))
@@ -333,8 +338,6 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 
 	initvar();
 
-	initctypes();
-
 	inittraps();
 
 	coproc_init();
@@ -409,12 +412,12 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 
 	/* override default PATH regardless of environment */
 #ifdef MKSH_DEFPATH_OVERRIDE
-	 vp = global(TPATH);
-	 setstr(vp, MKSH_DEFPATH_OVERRIDE, KSH_RETURN_ERROR);
+	vp = global(TPATH);
+	setstr(vp, MKSH_DEFPATH_OVERRIDE, KSH_RETURN_ERROR);
 #endif
 
 	/* for security */
-	typeset("IFS= \t\n", 0, 0, 0, 0);
+	typeset(TinitIFS, 0, 0, 0, 0);
 
 	/* assign default shell variable values */
 	typeset("PATHSEP=" MKSH_PATHSEPS, 0, 0, 0, 0);
@@ -497,7 +500,7 @@ main_init(int argc, const char *argv[], Source **sp, struct block **lp)
 		if (!(s->start = s->str = argv[argi++]))
 			errorf(Tf_optfoo, "", "", 'c', Treq_arg);
 		while (*s->str) {
-			if (*s->str != ' ' && ctype(*s->str, C_QUOTE))
+			if (ctype(*s->str, C_QUOTE))
 				break;
 			s->str++;
 		}
@@ -1554,7 +1557,7 @@ check_fd(const char *name, int mode, const char **emsgp)
 		goto illegal_fd_name;
 	if (name[0] == 'p')
 		return (coproc_getfd(mode, emsgp));
-	if (!ksh_isdigit(name[0])) {
+	if (!ctype(name[0], C_DIGIT)) {
  illegal_fd_name:
 		if (emsgp)
 			*emsgp = "illegal file descriptor name";
@@ -1893,7 +1896,7 @@ tnamecmp(const void *p1, const void *p2)
 	const struct tbl *a = *((const struct tbl * const *)p1);
 	const struct tbl *b = *((const struct tbl * const *)p2);
 
-	return (strcmp(a->name, b->name));
+	return (ascstrcmp(a->name, b->name));
 }
 
 struct tbl **
