@@ -33,8 +33,12 @@ MKSH_SRC_FILES := \
 MKSH_INCLUDES := $(LOCAL_PATH)/src
 
 # Compiler flags...
-MKSH_CFLAGS += \
+MKSH_WARNING_CFLAGS := \
+    -Wall -Werror \
     -Wno-deprecated-declarations \
+
+MKSH_CFLAGS += \
+    $(MKSH_WARNING_CFLAGS) \
     -fno-asynchronous-unwind-tables \
     -fno-strict-aliasing \
     -fstack-protector -fwrapv \
@@ -150,6 +154,7 @@ LOCAL_MODULE := sh_vendor
 LOCAL_MODULE_STEM := sh
 LOCAL_ADDITIONAL_DEPENDENCIES += $(LOCAL_PATH)/Android.mk
 LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_EXECUTABLES)
+LOCAL_CFLAGS := $(MKSH_WARNING_CFLAGS)
 
 # mksh source files
 LOCAL_SRC_FILES := $(MKSH_SRC_FILES)
@@ -169,4 +174,5 @@ include $(BUILD_EXECUTABLE)
 
 MKSH_SRC_FILES:=
 MKSH_CFLAGS:=
+MKSH_WARNING_CFLAGS:=
 MKSH_INCLUDES:=
