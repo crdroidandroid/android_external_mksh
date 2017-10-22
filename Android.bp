@@ -120,6 +120,9 @@ cc_defaults {
         vendor: {
             cflags: [
                 // Additional flags for vendor variant
+                "-UMKSH_DEFAULT_PROFILEDIR",
+                "-UMKSHRC_PATH",
+                "-UMKSH_DEFAULT_EXECSHELL",
                 "-DMKSH_DEFAULT_PROFILEDIR=\"/vendor/etc\"",
                 "-DMKSHRC_PATH=\"/vendor/etc/mkshrc\"",
                 "-DMKSH_DEFAULT_EXECSHELL=\"/vendor/bin/sh\"",
