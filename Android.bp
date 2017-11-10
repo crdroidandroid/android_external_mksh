@@ -116,20 +116,6 @@ cc_defaults {
         "-DMKSH_DEFAULT_EXECSHELL=\"/system/bin/sh\"",
         "-DMKSH_DEFAULT_TMPDIR=\"/data/local\"",
     ],
-    target: {
-        vendor: {
-            cflags: [
-                // Additional flags for vendor variant
-                "-UMKSH_DEFAULT_PROFILEDIR",
-                "-UMKSHRC_PATH",
-                "-UMKSH_DEFAULT_EXECSHELL",
-                "-DMKSH_DEFAULT_PROFILEDIR=\"/vendor/etc\"",
-                "-DMKSHRC_PATH=\"/vendor/etc/mkshrc\"",
-                "-DMKSH_DEFAULT_EXECSHELL=\"/vendor/bin/sh\"",
-                "-DMKSH_DEFPATH_OVERRIDE=\"/vendor/bin:/vendor/xbin\"",
-            ],
-        },
-    },
 }
 
 cc_binary {
@@ -142,4 +128,14 @@ cc_binary {
     defaults: ["sh-defaults"],
     stem: "sh",
     vendor: true,
+    cflags: [
+        // Additional flags for vendor variant
+        "-UMKSH_DEFAULT_PROFILEDIR",
+        "-UMKSHRC_PATH",
+        "-UMKSH_DEFAULT_EXECSHELL",
+        "-DMKSH_DEFAULT_PROFILEDIR=\"/vendor/etc\"",
+        "-DMKSHRC_PATH=\"/vendor/etc/mkshrc\"",
+        "-DMKSH_DEFAULT_EXECSHELL=\"/vendor/bin/sh\"",
+        "-DMKSH_DEFPATH_OVERRIDE=\"/vendor/bin:/vendor/xbin\"",
+    ],
 }
