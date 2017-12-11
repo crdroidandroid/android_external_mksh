@@ -6,9 +6,6 @@
 #
 # Support: https://launchpad.net/mksh
 
-: ${TMPDIR:=/data/local/tmp}
-export TMPDIR
-
 if (( USER_ID )); then PS1='$'; else PS1='#'; fi
 PS4='[$EPOCHREALTIME] '; PS1='${|
 	local e=$?
