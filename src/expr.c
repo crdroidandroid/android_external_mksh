@@ -2,7 +2,7 @@
 
 /*-
  * Copyright (c) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
- *		 2011, 2012, 2013, 2014, 2016, 2017
+ *		 2011, 2012, 2013, 2014, 2016, 2017, 2018
  *	mirabilos <m@mirbsd.org>
  *
  * Provided that these terms and disclaimer and all copyright notices
@@ -23,7 +23,7 @@
 
 #include "sh.h"
 
-__RCSID("$MirOS: src/bin/mksh/expr.c,v 1.100 2017/08/07 21:38:55 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/expr.c,v 1.103 2018/01/14 01:29:47 tg Exp $");
 
 #define EXPRTOK_DEFNS
 #include "exprtok.h"
@@ -558,9 +558,11 @@ exprtoken(Expr_state *es)
 
 	/* skip whitespace */
  skip_spaces:
-	while (ctype(ord((c = *cp)), C_SPACE))
-		++cp;
-	if (es->tokp == es->expression && c == ord('#')) {
+	--cp;
+	do {
+		c = ord(*++cp);
+	} while (ctype(c, C_SPACE));
+	if (es->tokp == es->expression && (unsigned int)c == ORD('#')) {
 		/* expression begins with # */
 		/* switch to unsigned */
 		es->natural = true;
@@ -575,7 +577,7 @@ exprtoken(Expr_state *es)
 		do {
 			c = ord(*++cp);
 		} while (ctype(c, C_ALNUX));
-		if (c == ord('[')) {
+		if ((unsigned int)c == ORD('[')) {
 			size_t len;
 
 			len = array_ref_len(cp);
@@ -884,7 +886,7 @@ static int mb_ucsbsearch(const struct mb_ucsrange arr[], size_t elems,
 
 /*
  * Generated from the Unicode Character Database, Version 10.0.0, by
- * MirOS: contrib/code/Snippets/eawparse,v 1.10 2017/07/12 22:47:26 tg Exp $
+ * MirOS: contrib/code/Snippets/eawparse,v 1.12 2017/09/06 16:05:45 tg Exp $
  */
 
 static const struct mb_ucsrange mb_ucs_combining[] = {
@@ -895,16 +897,14 @@ static const struct mb_ucsrange mb_ucs_combining[] = {
 	{ 0x05C1, 0x05C2 },
 	{ 0x05C4, 0x05C5 },
 	{ 0x05C7, 0x05C7 },
-	{ 0x0600, 0x0605 },
 	{ 0x0610, 0x061A },
 	{ 0x061C, 0x061C },
 	{ 0x064B, 0x065F },
 	{ 0x0670, 0x0670 },
-	{ 0x06D6, 0x06DD },
+	{ 0x06D6, 0x06DC },
 	{ 0x06DF, 0x06E4 },
 	{ 0x06E7, 0x06E8 },
 	{ 0x06EA, 0x06ED },
-	{ 0x070F, 0x070F },
 	{ 0x0711, 0x0711 },
 	{ 0x0730, 0x074A },
 	{ 0x07A6, 0x07B0 },
@@ -914,7 +914,8 @@ static const struct mb_ucsrange mb_ucs_combining[] = {
 	{ 0x0825, 0x0827 },
 	{ 0x0829, 0x082D },
 	{ 0x0859, 0x085B },
-	{ 0x08D4, 0x0902 },
+	{ 0x08D4, 0x08E1 },
+	{ 0x08E3, 0x0902 },
 	{ 0x093A, 0x093A },
 	{ 0x093C, 0x093C },
 	{ 0x0941, 0x0948 },
