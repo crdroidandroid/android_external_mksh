@@ -32,7 +32,7 @@
 #include <grp.h>
 #endif
 
-__RCSID("$MirOS: src/bin/mksh/misc.c,v 1.279 2017/08/07 21:39:25 tg Exp $");
+__RCSID("$MirOS: src/bin/mksh/misc.c,v 1.291 2018/01/14 00:03:03 tg Exp $");
 
 #define KSH_CHVT_FLAG
 #ifdef MKSH_SMALL
@@ -696,14 +696,14 @@ has_globbing(const char *pat)
 		if (!(c = *p++))
 			return (false);
 		/* some specials */
-		if (ord(c) == ord('*') || ord(c) == ord('?')) {
+		if (ord(c) == ORD('*') || ord(c) == ORD('?')) {
 			/* easy glob, accept */
 			saw_glob = true;
-		} else if (ord(c) == ord('[')) {
+		} else if (ord(c) == ORD('[')) {
 			/* bracket expression; eat negation and initial ] */
-			if (ISMAGIC(p[0]) && ord(p[1]) == ord('!'))
+			if (ISMAGIC(p[0]) && ord(p[1]) == ORD('!'))
 				p += 2;
-			if (ISMAGIC(p[0]) && ord(p[1]) == ord(']'))
+			if (ISMAGIC(p[0]) && ord(p[1]) == ORD(']'))
 				p += 2;
 			/* check next string part */
 			s = p;
@@ -715,27 +715,27 @@ has_globbing(const char *pat)
 				if (!(c = *s++))
 					return (false);
 				/* terminating bracket? */
-				if (ord(c) == ord(']')) {
+				if (ord(c) == ORD(']')) {
 					/* accept and continue */
 					p = s;
 					saw_glob = true;
 					break;
 				}
 				/* sub-bracket expressions */
-				if (ord(c) == ord('[') && (
+				if (ord(c) == ORD('[') && (
 				    /* collating element? */
-				    ord(*s) == ord('.') ||
+				    ord(*s) == ORD('.') ||
 				    /* equivalence class? */
-				    ord(*s) == ord('=') ||
+				    ord(*s) == ORD('=') ||
 				    /* character class? */
-				    ord(*s) == ord(':'))) {
+				    ord(*s) == ORD(':'))) {
 					/* must stop with exactly the same c */
 					subc = *s++;
 					/* arbitrarily many chars in betwixt */
 					while ((c = *s++))
 						/* but only this sequence... */
 						if (c == subc && ISMAGIC(*s) &&
-						    ord(s[1]) == ord(']')) {
+						    ord(s[1]) == ORD(']')) {
 							/* accept, terminate */
 							s += 2;
 							break;
@@ -751,7 +751,7 @@ has_globbing(const char *pat)
 			/* opening pattern */
 			saw_glob = true;
 			++nest;
-		} else if (ord(c) == ord(/*(*/ ')')) {
+		} else if (ord(c) == ORD(/*(*/ ')')) {
 			/* closing pattern */
 			if (nest)
 				--nest;
@@ -785,24 +785,24 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 			continue;
 		}
 		switch (ord(*p++)) {
-		case ord('['):
+		case ORD('['):
 			/* BSD cclass extension? */
-			if (ISMAGIC(p[0]) && ord(p[1]) == ord('[') &&
-			    ord(p[2]) == ord(':') &&
+			if (ISMAGIC(p[0]) && ord(p[1]) == ORD('[') &&
+			    ord(p[2]) == ORD(':') &&
 			    ctype((pc = p[3]), C_ANGLE) &&
-			    ord(p[4]) == ord(':') &&
-			    ISMAGIC(p[5]) && ord(p[6]) == ord(']') &&
-			    ISMAGIC(p[7]) && ord(p[8]) == ord(']')) {
+			    ord(p[4]) == ORD(':') &&
+			    ISMAGIC(p[5]) && ord(p[6]) == ORD(']') &&
+			    ISMAGIC(p[7]) && ord(p[8]) == ORD(']')) {
 				/* zero-length match */
 				--s;
 				p += 9;
 				/* word begin? */
-				if (ord(pc) == ord('<') &&
+				if (ord(pc) == ORD('<') &&
 				    !ctype(sl, C_ALNUX) &&
 				    ctype(sc, C_ALNUX))
 					break;
 				/* word end? */
-				if (ord(pc) == ord('>') &&
+				if (ord(pc) == ORD('>') &&
 				    ctype(sl, C_ALNUX) &&
 				    !ctype(sc, C_ALNUX))
 					break;
@@ -813,7 +813,7 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 				return (0);
 			break;
 
-		case ord('?'):
+		case ORD('?'):
 			if (sc == 0)
 				return (0);
 			if (UTFMODE) {
@@ -822,7 +822,7 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 			}
 			break;
 
-		case ord('*'):
+		case ORD('*'):
 			if (p == pe)
 				return (1);
 			s--;
@@ -838,14 +838,14 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 		 */
 
 		/* matches one or more times */
-		case 0x80|ord('+'):
+		case ORD('+') | 0x80:
 		/* matches zero or more times */
-		case 0x80|ord('*'):
+		case ORD('*') | 0x80:
 			if (!(prest = pat_scan(p, pe, false)))
 				return (0);
 			s--;
 			/* take care of zero matches */
-			if (ord(p[-1]) == (0x80 | ord('*')) &&
+			if (ord(p[-1]) == (0x80 | ORD('*')) &&
 			    do_gmatch(s, se, prest, pe, smin))
 				return (1);
 			for (psub = p; ; psub = pnext) {
@@ -863,16 +863,16 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 			return (0);
 
 		/* matches zero or once */
-		case 0x80|ord('?'):
+		case ORD('?') | 0x80:
 		/* matches one of the patterns */
-		case 0x80|ord('@'):
+		case ORD('@') | 0x80:
 		/* simile for @ */
-		case 0x80|ord(' '):
+		case ORD(' ') | 0x80:
 			if (!(prest = pat_scan(p, pe, false)))
 				return (0);
 			s--;
 			/* Take care of zero matches */
-			if (ord(p[-1]) == (0x80 | ord('?')) &&
+			if (ord(p[-1]) == (0x80 | ORD('?')) &&
 			    do_gmatch(s, se, prest, pe, smin))
 				return (1);
 			for (psub = p; ; psub = pnext) {
@@ -889,7 +889,7 @@ do_gmatch(const unsigned char *s, const unsigned char *se,
 			return (0);
 
 		/* matches none of the patterns */
-		case 0x80|ord('!'):
+		case ORD('!') | 0x80:
 			if (!(prest = pat_scan(p, pe, false)))
 				return (0);
 			s--;
@@ -966,12 +966,12 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 	char *subp;
 
 	/* check for negation */
-	if (ISMAGIC(p[0]) && ord(p[1]) == ord('!')) {
+	if (ISMAGIC(p[0]) && ord(p[1]) == ORD('!')) {
 		p += 2;
 		negated = true;
 	}
 	/* make initial ] non-MAGIC */
-	if (ISMAGIC(p[0]) && ord(p[1]) == ord(']'))
+	if (ISMAGIC(p[0]) && ord(p[1]) == ORD(']'))
 		++p;
 	/* iterate over bracket expression, debunk()ing on the fly */
 	while ((c = *p++)) {
@@ -982,18 +982,18 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 			if (!(c = *p++))
 				break;
 			/* terminating bracket? */
-			if (ord(c) == ord(']')) {
+			if (ord(c) == ORD(']')) {
 				/* accept and return */
 				return (found != negated ? p : NULL);
 			}
 			/* sub-bracket expressions */
-			if (ord(c) == ord('[') && (
+			if (ord(c) == ORD('[') && (
 			    /* collating element? */
-			    ord(*p) == ord('.') ||
+			    ord(*p) == ORD('.') ||
 			    /* equivalence class? */
-			    ord(*p) == ord('=') ||
+			    ord(*p) == ORD('=') ||
 			    /* character class? */
-			    ord(*p) == ord(':'))) {
+			    ord(*p) == ORD(':'))) {
 				/* must stop with exactly the same c */
 				subc = *p++;
 				/* save away start of substring */
@@ -1002,7 +1002,7 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 				while ((c = *p++))
 					/* but only this sequence... */
 					if (c == subc && ISMAGIC(*p) &&
-					    ord(p[1]) == ord(']')) {
+					    ord(p[1]) == ORD(']')) {
 						/* accept, terminate */
 						p += 2;
 						break;
@@ -1015,7 +1015,7 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 				debunk(subp, subp, p - s - 3 + 1);
  cclass_common:
 				/* whither subexpression */
-				if (ord(subc) == ord(':')) {
+				if (ord(subc) == ORD(':')) {
 					const struct cclass *cls = cclasses;
 
 					/* search for name in cclass list */
@@ -1055,9 +1055,9 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 			}
 		}
 		/* range expression? */
-		if (!(ISMAGIC(p[0]) && ord(p[1]) == ord('-') &&
+		if (!(ISMAGIC(p[0]) && ord(p[1]) == ORD('-') &&
 		    /* not terminating bracket? */
-		    (!ISMAGIC(p[2]) || ord(p[3]) != ord(']')))) {
+		    (!ISMAGIC(p[2]) || ord(p[3]) != ORD(']')))) {
 			/* no, check single match */
 			if (sc == c)
 				/* note: sc is never NUL */
@@ -1079,13 +1079,13 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 			if (!(c = *p++))
 				break;
 			/* sub-bracket expressions */
-			if (ord(c) == ord('[') && (
+			if (ord(c) == ORD('[') && (
 			    /* collating element? */
-			    ord(*p) == ord('.') ||
+			    ord(*p) == ORD('.') ||
 			    /* equivalence class? */
-			    ord(*p) == ord('=') ||
+			    ord(*p) == ORD('=') ||
 			    /* character class? */
-			    ord(*p) == ord(':'))) {
+			    ord(*p) == ORD(':'))) {
 				/* must stop with exactly the same c */
 				subc = *p++;
 				/* save away start of substring */
@@ -1094,7 +1094,7 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 				while ((c = *p++))
 					/* but only this sequence... */
 					if (c == subc && ISMAGIC(*p) &&
-					    ord(p[1]) == ord(']')) {
+					    ord(p[1]) == ORD(']')) {
 						/* accept, terminate */
 						p += 2;
 						break;
@@ -1106,14 +1106,14 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 				strndupx(subp, s, p - s - 3, ATEMP);
 				debunk(subp, subp, p - s - 3 + 1);
 				/* whither subexpression */
-				if (ord(subc) == ord(':')) {
+				if (ord(subc) == ORD(':')) {
 					/* oops, not a range */
 
 					/* match single previous char */
 					if (lc && (sc == lc))
 						found = true;
 					/* match hyphen-minus */
-					if (ord(sc) == ord('-'))
+					if (ord(sc) == ORD('-'))
 						found = true;
 					/* handle cclass common part */
 					goto cclass_common;
@@ -1151,7 +1151,7 @@ gmatch_cclass(const unsigned char *pat, unsigned char sc)
 		/* otherwise, just go on with the pattern string */
 	}
 	/* if we broke here, the bracket expression was invalid */
-	if (ord(sc) == ord('['))
+	if (ord(sc) == ORD('['))
 		/* initial opening bracket as literal match */
 		return (pat);
 	/* or rather no match */
@@ -1661,6 +1661,15 @@ do_realpath(const char *upath)
 	if (mksh_abspath(upath)) {
 		/* upath is an absolute pathname */
 		strdupx(ipath, upath, ATEMP);
+#ifdef MKSH_DOSPATH
+	} else if (mksh_drvltr(upath)) {
+		/* upath is a drive-relative pathname */
+		if (getdrvwd(&ldest, ord(*upath)))
+			return (NULL);
+		/* A:foo -> A:/cwd/foo; A: -> A:/cwd */
+		ipath = shf_smprintf(Tf_sss, ldest,
+		    upath[2] ? "/" : "", upath + 2);
+#endif
 	} else {
 		/* upath is a relative pathname, prepend cwd */
 		if ((tp = ksh_get_wd()) == NULL || !mksh_abspath(tp))
@@ -1695,6 +1704,7 @@ do_realpath(const char *upath)
 				continue;
 			else if (len == 2 && tp[1] == '.') {
 				/* strip off last pathname component */
+				/*XXX consider a rooted pathname */
 				while (xp > Xstring(xs, xp))
 					if (mksh_cdirsep(*--xp))
 						break;
@@ -1762,11 +1772,23 @@ do_realpath(const char *upath)
 			 * restart if symlink target is an absolute path,
 			 * otherwise continue with currently resolved prefix
 			 */
+#ifdef MKSH_DOSPATH
+ assemble_symlink:
+#endif
 			/* append rest of current input path to link target */
 			tp = shf_smprintf(Tf_sss, ldest, *ip ? "/" : "", ip);
 			afree(ipath, ATEMP);
 			ip = ipath = tp;
-			if (!mksh_abspath(ldest)) {
+			if (!mksh_abspath(ipath)) {
+#ifdef MKSH_DOSPATH
+				/* symlink target might be drive-relative */
+				if (mksh_drvltr(ipath)) {
+					if (getdrvwd(&ldest, ord(*ipath)))
+						goto notfound;
+					ip += 2;
+					goto assemble_symlink;
+				}
+#endif
 				/* symlink target is a relative path */
 				xp = Xrestpos(xs, xp, pos);
 			} else
@@ -1775,7 +1797,7 @@ do_realpath(const char *upath)
 				/* symlink target is an absolute path */
 				xp = Xstring(xs, xp);
  beginning_of_a_pathname:
-				/* assert: mksh_cdirsep((ip == ipath)[0]) */
+				/* assert: mksh_abspath(ip == ipath) */
 				/* assert: xp == xs.beg => start of path */
 
 				/* exactly two leading slashes? (SUSv4 3.266) */
@@ -1783,6 +1805,14 @@ do_realpath(const char *upath)
 					/* keep them, e.g. for UNC pathnames */
 					Xput(xs, xp, '/');
 				}
+#ifdef MKSH_DOSPATH
+				/* drive letter? */
+				if (mksh_drvltr(ip)) {
+					/* keep it */
+					Xput(xs, xp, *ip++);
+					Xput(xs, xp, *ip++);
+				}
+#endif
 			}
 		}
 		/* otherwise (no symlink) merely go on */
@@ -1932,6 +1962,15 @@ make_path(const char *cwd, const char *file,
  * ..					..
  * ./foo				foo
  * foo/../../../bar			../../bar
+ * C:/foo/../..				C:/
+ * C:.					C:
+ * C:..					C:..
+ * C:foo/../../blah			C:../blah
+ *
+ * XXX consider a rooted pathname: we cannot really 'cd ..' for
+ * pathnames like: '/', 'c:/', '//foo', '//foo/', '/@unixroot/'
+ * (no effect), 'c:', 'c:.' (effect is retaining the '../') but
+ * we need to honour this throughout the shell
  */
 void
 simplify_path(char *p)
@@ -1939,6 +1978,17 @@ simplify_path(char *p)
 	char *dp, *ip, *sp, *tp;
 	size_t len;
 	bool needslash;
+#ifdef MKSH_DOSPATH
+	bool needdot = true;
+
+	/* keep drive letter */
+	if (mksh_drvltr(p)) {
+		p += 2;
+		needdot = false;
+	}
+#else
+#define needdot true
+#endif
 
 	switch (*p) {
 	case 0:
@@ -1977,7 +2027,7 @@ simplify_path(char *p)
 				/* just continue with the next one */
 				continue;
 			else if (len == 2 && tp[1] == '.') {
-				/* parent level, but how? */
+				/* parent level, but how? (see above) */
 				if (mksh_abspath(p))
 					/* absolute path, only one way */
 					goto strip_last_component;
@@ -2016,10 +2066,15 @@ simplify_path(char *p)
 		needslash = true;
 		/* try next component */
 	}
-	if (dp == p)
-		/* empty path -> dot */
-		*dp++ = needslash ? '/' : '.';
+	if (dp == p) {
+		/* empty path -> dot (or slash, when absolute) */
+		if (needslash)
+			*dp++ = '/';
+		else if (needdot)
+			*dp++ = '.';
+	}
 	*dp = '\0';
+#undef needdot
 }
 
 void
@@ -2132,6 +2187,18 @@ c_cd(const char **wp)
 		bi_errorf(Ttoo_many_args);
 		return (2);
 	}
+
+#ifdef MKSH_DOSPATH
+	tryp = NULL;
+	if (mksh_drvltr(dir) && !mksh_cdirsep(dir[2]) &&
+	    !getdrvwd(&tryp, ord(*dir))) {
+		dir = shf_smprintf(Tf_sss, tryp,
+		    dir[2] ? "/" : "", dir + 2);
+		afree(tryp, ATEMP);
+		afree(allocd, ATEMP);
+		allocd = dir;
+	}
+#endif
 
 #ifdef MKSH__NO_PATH_MAX
 	/* only a first guess; make_path will enlarge xs if necessary */
